@@ -39,6 +39,14 @@ corresponding commented entry in `src/config/settings.ini.sample`.
 Update `docs/CHANGELOG.md` and `docs/UPGRADING.md` alongside behavior
 changes. Documentation is not a follow-up task.
 
+## Tool Naming
+
+MCP tool names are model-facing: use explicit snake_case nouns, fully
+spelled out (`blackboard_write`, not `bb_write`; `message_send`, not
+`msg_send`). Qualify a name when the plain word misstates the contract
+(`advisory_lock_acquire`, because holders cannot hard-block others).
+Renames keep the old name in the attribute's `renamedFrom` metadata.
+
 ## Serving Topology
 
 Apache NEVER terminates TLS for Continuum. TLS ends at the estate front
