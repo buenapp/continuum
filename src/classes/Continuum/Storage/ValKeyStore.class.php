@@ -95,6 +95,45 @@ class ValKeyStore {
         return ($ts === null || $ts === false) ? null : (int)$ts;
     }
 
+    /** Full presence record for an agent (heartbeat timestamp + meta), or null. */
+    public function agentRecord(string $agentId): ?array {
+        $fields = $this->client->command('HGETALL', self::NS . 'agent:' . $agentId) ?: [];
+        if (empty($fields)) { return null; }
+        $record = [];
+        for ($i = 0; $i + 1 < count($fields); $i += 2) { $record[$fields[$i]] = $fields[$i + 1]; }
+        return $record;
+    }
+
+    /**
+     * Read up to $limit inbox messages, leaving the remainder queued.
+     * Two step LRANGE+LTRIM: not atomic across concurrent pulls of the same
+     * inbox (single consumer per agent in practice).
+     */
+    public function inboxPull(string $agentId, int $limit): array {
+        $key = self::NS . 'inbox:' . $agentId;
+        $items = $this->client->command('LRANGE', $key, '0', (string)($limit - 1)) ?: [];
+        if (empty($items)) { return []; }
+        $this->client->command('LTRIM', $key, (string)count($items), '-1');
+        return array_map(fn($j) => json_decode($j, true), $items);
+    }
+
+    /** All currently held locks: name => ['owner'=>, 'ttl_ms'=>]. */
+    public function listLocks(): array {
+        $locks = [];
+        $cursor = '0';
+        do {
+            $result = $this->client->command('SCAN', $cursor, 'MATCH', self::NS . 'lock:*', 'COUNT', '100');
+            if (!is_array($result) || count($result) < 2) { break; }
+            $cursor = (string)$result[0];
+            foreach ((array)$result[1] as $key) {
+                $name = substr($key, strlen(self::NS . 'lock:'));
+                $held = $this->checkLock($name);
+                if ($held !== null) { $locks[$name] = $held; }
+            }
+        } while ($cursor !== '0');
+        return $locks;
+    }
+
     /** Registered agent ids (not liveness-filtered). */
     public function agents(): array {
         return $this->client->command('SMEMBERS', self::NS . 'agents') ?: [];

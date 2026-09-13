@@ -20,6 +20,11 @@ use Continuum\BoardTools;
 use Continuum\TaskTools;
 use Continuum\LockTools;
 use Continuum\ContextTools;
+use Continuum\AgentTools;
+use Continuum\MessageTools;
+use Continuum\EventTools;
+use Continuum\StatusTools;
+use Continuum\Dashboard;
 use Continuum\Storage\ContinuumStorage;
 
 // Health probe (unauthenticated; no sensitive data)
@@ -63,17 +68,27 @@ $server->setTitle(APPLICATION_NAME)
     ->setDescription(APPLICATION_DESCRIPTION)
     ->setWebsiteUrl(APPLICATION_WEBSITE);
 
-$server->register(new ServerTools());
-
 // Tool surface rides on the storage facade. ensureSchema is idempotent
 // and runs per request (PHP userland state resets between requests).
 $storage = ContinuumStorage::fromSettings($SETTINGS);
 $storage->ensureSchema();
 
+// Read-only human dashboard (authenticated like everything else).
+if ($requestUri === '/' && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
+    header('Content-Type: text/html; charset=utf-8');
+    echo Dashboard::render((new StatusTools($storage))->board_status());
+    exit;
+}
+
+$server->register(new ServerTools());
 $server->register(new BoardTools($storage));
 $server->register(new TaskTools($storage));
 $server->register(new LockTools($storage));
 $server->register(new ContextTools($storage));
+$server->register(new AgentTools($storage));
+$server->register(new MessageTools($storage));
+$server->register(new EventTools($storage));
+$server->register(new StatusTools($storage));
 
 $transport = new HttpSseTransport(
     $server->handleRequest(...),

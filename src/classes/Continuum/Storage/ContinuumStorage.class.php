@@ -83,6 +83,29 @@ class ContinuumStorage implements ContinuumStorageInterface {
         }
         return $out;
     }
+    /** Registered agents with their full presence records (meta + heartbeat). */
+    public function agentDirectory(): array {
+        $out = [];
+        foreach ($this->valkey->agents() as $agentId) {
+            $out[$agentId] = $this->valkey->agentRecord($agentId) ?? [];
+        }
+        return $out;
+    }
+    /** Read up to $limit inbox messages, leaving the remainder queued. */
+    public function inboxPull(string $agentId, int $limit): array {
+        return $this->valkey->inboxPull($agentId, $limit);
+    }
+    /** All currently held locks: name => ['owner'=>, 'ttl_ms'=>]. */
+    public function listLocks(): array {
+        return $this->valkey->listLocks();
+    }
+    public function queueDepth(string $queue): int {
+        return $this->valkey->queueDepth($queue);
+    }
+    /** All event-log documents (id => doc), unsorted. Callers filter/limit. */
+    public function listEventDocs(): array {
+        return $this->couch->listDocs('events');
+    }
     public function inboxPush(string $agentId, array $message): int {
         return $this->valkey->inboxPush($agentId, $message);
     }
@@ -118,6 +141,10 @@ class ContinuumStorage implements ContinuumStorageInterface {
             if (str_starts_with($id, $prefix)) { $docs[substr($id, strlen($prefix))] = $doc; }
         }
         return $docs;
+    }
+    /** All board docs with their full "scope/key" ids. */
+    public function listBoardDocsAll(): array {
+        return $this->couch->listDocs('boards');
     }
     public function newId(): string {
         return $this->couch->newId();

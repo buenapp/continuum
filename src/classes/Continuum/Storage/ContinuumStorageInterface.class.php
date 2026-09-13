@@ -26,8 +26,12 @@ interface ContinuumStorageInterface {
     public function heartbeat(string $agentId, array $meta = []): void;
     public function agents(): array;
     public function presence(): array;   // agentId => heartbeat ts
+    public function agentDirectory(): array;   // agentId => presence record
     public function inboxPush(string $agentId, array $message): int;
     public function inboxDrain(string $agentId): array;
+    public function inboxPull(string $agentId, int $limit): array;
+    public function listLocks(): array;   // name => ['owner'=>, 'ttl_ms'=>]
+    public function queueDepth(string $queue): int;
 
     // --- Durable (CouchDB)
     public function savePlan(string $planId, array $plan, ?string $rev = null): array;
@@ -37,6 +41,8 @@ interface ContinuumStorageInterface {
     public function listTaskIds(): array;
     public function listTaskDocs(): array;   // id => doc
     public function listBoardDocs(string $board): array;   // key => doc
+    public function listBoardDocsAll(): array;   // "scope/key" => doc
+    public function listEventDocs(): array;   // id => doc, unsorted
     public function newId(): string;
     public function appendLog(string $agentId, string $type, array $data): string;
     public function saveBoardEntry(string $board, string $key, array $entry, ?string $rev = null): array;

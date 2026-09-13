@@ -21,9 +21,15 @@ class FakeRespClient extends RespClient {
 class FakeCouch extends CouchDBStore {
     /** @var array<int,array> */ public array $calls = [];
     /** @var array<int,array{code:int, body:mixed}> */ private array $script;
+    /** @var array<int,array{code:int, body:mixed}> */ private array $scriptOriginal;
     public function __construct(array $script = []) {
         parent::__construct('127.0.0.1', 5984, 'test', 'test');
         $this->script = $script;
+        $this->scriptOriginal = $script;
+    }
+    /** Fresh instance replaying the same script (for multi-assert tests). */
+    public function replay(): self {
+        return new self($this->scriptOriginal);
     }
     public function call($method, $data = NULL, $http_verb = 'GET', $extra_headers = array(), $timeout = NULL, $format = 'json') {
         $this->calls[] = ['path' => $method, 'data' => $data, 'verb' => $http_verb];

@@ -8,6 +8,20 @@ introduces them (see AGENTS.md). Version parity is enforced between
 
 ### Added
 
+- Phase 5 tool wave (liveness, messaging, visibility):
+  - `agent_register` / `agent_heartbeat` — presence records with
+    capabilities, label, and `working_on`; heartbeats are churn and are
+    deliberately not logged.
+  - `message_send` / `message_inbox_pull` / `message_broadcast` —
+    per-agent inboxes with a destructive-read pull model; broadcast
+    skips the sender and logs the recipient count.
+  - `event_log` — read the append-only audit trail, newest first, with
+    `type` / `scope` / `since` filters and a limit.
+  - `board_status` — whole-board snapshot: agents with last-seen, open
+    tasks with owners, held locks (enumerate via ValKey SCAN), board
+    scopes, queue depths, recent events.
+  - Read-only HTML dashboard at `GET /` (authenticated with any agent
+    key; server-rendered, auto-refreshes).
 - Phase 4 tool wave (blackboard core):
   - `blackboard_write` / `blackboard_read` / `blackboard_keys` /
     `blackboard_delete` — scoped board entries

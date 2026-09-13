@@ -21,6 +21,10 @@ use Continuum\BoardTools;
 use Continuum\TaskTools;
 use Continuum\LockTools;
 use Continuum\ContextTools;
+use Continuum\AgentTools;
+use Continuum\MessageTools;
+use Continuum\EventTools;
+use Continuum\StatusTools;
 use Continuum\Storage\ContinuumStorage;
 
 // stdio has no transport auth; attribute everything to a fixed identity.
@@ -46,6 +50,10 @@ $server->register(new BoardTools($storage));
 $server->register(new TaskTools($storage));
 $server->register(new LockTools($storage));
 $server->register(new ContextTools($storage));
+$server->register(new AgentTools($storage));
+$server->register(new MessageTools($storage));
+$server->register(new EventTools($storage));
+$server->register(new StatusTools($storage));
 
 // Run via StdioTransport: primitives in (handler, progress emitter),
 // notifier back out. The loop is strict opt-in — with Comal not
