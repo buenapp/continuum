@@ -87,6 +87,12 @@ fixed `stdio` agent):
 npx @modelcontextprotocol/inspector php bin/mcp-stdio
 ```
 
+### Steering agents onto the board
+
+A paste-ready `AGENTS.md` block for project repos is in
+[`AGENTS-SNIPPET.md`](AGENTS-SNIPPET.md). It encodes the session protocol
+below as agent-visible rules, scoped per project.
+
 ## Session protocol (what agents should do)
 
 Continuum is the coordination surface, not a chat log. Per session
