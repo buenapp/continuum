@@ -13,3 +13,6 @@ src/temp/
 .vscode/
 .idea/
 *.swp
+
+# Port build trees
+ports/**/work-*/
