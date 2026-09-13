@@ -2,11 +2,10 @@ PORTNAME=	continuum
 DISTVERSIONPREFIX=	v
 DISTVERSION=	0.1.0
 CATEGORIES=	www
-
 MASTER_SITES=	https://pacyworld.dev/buenapp/continuum/archive/
+PKGNAMEPREFIX=	${PHP_PKGNAMEPREFIX}
 DISTNAME=	v${DISTVERSION}
 DIST_SUBDIR=	${PORTNAME}
-WRKSRC=		${WRKDIR}/continuum
 
 MAINTAINER=	justin@morante.net
 COMMENT=	Hosted blackboard coordination MCP server for multi-agent orchestration
@@ -17,17 +16,16 @@ LICENSE_FILE=	${WRKSRC}/LICENSE
 
 USES=		php:flavors
 USE_PHP=	ctype curl filter json mbstring
-PKGNAMEPREFIX=	${PHP_PKGNAMEPREFIX}
-
-OPTIONS_DEFINE=	EXAMPLES
-
-NO_ARCH=	yes
-NO_BUILD=	yes
 
 WWWDIR=		${PREFIX}/www/${PORTNAME}
-
+NO_ARCH=	yes
+NO_BUILD=	yes
 SUB_FILES=	pkg-message
 SUB_LIST=	WWWDIR=${WWWDIR} EXAMPLESDIR=${EXAMPLESDIR}
+
+WRKSRC=		${WRKDIR}/continuum
+
+OPTIONS_DEFINE=	EXAMPLES
 
 do-install:
 	@${MKDIR} ${STAGEDIR}${WWWDIR}
