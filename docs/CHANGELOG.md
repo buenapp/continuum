@@ -20,7 +20,7 @@ introduces them (see AGENTS.md). Version parity is enforced between
     claim fails with a conflict error instead of double-claiming; status
     changes and handoffs are owner-only; `done`/`cancelled` release the
     claim edge in the dependency graph; handoffs re-queue the task.
-  - `lock_acquire` / `lock_release` / `lock_check` — advisory TTL locks;
+  - `advisory_lock_acquire` / `advisory_lock_release` / `advisory_lock_check` — advisory TTL locks;
     compare-and-delete release means a non-owner cannot steal a lock.
   - `context_pack` — the ranked, token-budgeted session-start brief
     (focused task with dependency graph neighborhood, open tasks, board

@@ -23,7 +23,7 @@ class LockToolsTest extends TestCase {
             null,    // GET lock:build (free)
             'OK',    // SET NX EX
         ]);
-        $result = $this->tools($resp)->lock_acquire('build', 60);
+        $result = $this->tools($resp)->advisory_lock_acquire('build', 60);
         $this->assertTrue($result['acquired']);
         $this->assertSame('test-agent', $result['owner']);
         // lock value is the agent identity with the TTL
@@ -38,7 +38,7 @@ class LockToolsTest extends TestCase {
             'bob',   // GET lock:deploy
             45000,   // PTTL
         ]);
-        $result = $this->tools($resp)->lock_acquire('deploy');
+        $result = $this->tools($resp)->advisory_lock_acquire('deploy');
         $this->assertFalse($result['acquired']);
         $this->assertSame('bob', $result['owner']);
         $this->assertSame(45000, $result['ttl_ms']);
@@ -47,21 +47,21 @@ class LockToolsTest extends TestCase {
 
     public function testReleaseOnlyAsOwner(): void {
         $resp = new FakeRespClient([1]); // Lua compare-and-delete matched
-        $result = $this->tools($resp)->lock_release('build');
+        $result = $this->tools($resp)->advisory_lock_release('build');
         $this->assertTrue($result['released']);
         $this->assertSame('EVAL', $resp->calls[0][0]);
     }
 
     public function testReleaseForeignLockFails(): void {
         $resp = new FakeRespClient([0]); // Lua returned 0: not the owner
-        $result = $this->tools($resp)->lock_release('build');
+        $result = $this->tools($resp)->advisory_lock_release('build');
         $this->assertFalse($result['released']);
     }
 
     public function testCheckFreeAndHeld(): void {
-        $free = $this->tools(new FakeRespClient([null]))->lock_check('x');
+        $free = $this->tools(new FakeRespClient([null]))->advisory_lock_check('x');
         $this->assertTrue($free['free']);
-        $held = $this->tools(new FakeRespClient(['alice', 999]))->lock_check('x');
+        $held = $this->tools(new FakeRespClient(['alice', 999]))->advisory_lock_check('x');
         $this->assertFalse($held['free']);
         $this->assertSame('alice', $held['owner']);
         $this->assertFalse($held['mine']);

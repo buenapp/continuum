@@ -17,10 +17,11 @@ class LockTools {
     public function __construct(private ContinuumStorage $storage) {}
 
     #[McpTool(
-        name: 'lock_acquire',
-        description: 'Acquire an advisory named lock with a TTL (seconds). Fails cleanly when another agent holds it.'
+        name: 'advisory_lock_acquire',
+        renamedFrom: 'lock_acquire',
+        description: 'Acquire an advisory named lock with a TTL (seconds). Advisory means cooperation-based: holders cannot block others from touching the resource — it is a claim other agents are expected to respect. Fails cleanly when another agent holds it.'
     )]
-    public function lock_acquire(string $name, int $ttlSeconds = 300): array {
+    public function advisory_lock_acquire(string $name, int $ttlSeconds = 300): array {
         if ($ttlSeconds < 1) {
             throw new \RuntimeException('ttlSeconds must be >= 1');
         }
@@ -31,29 +32,31 @@ class LockTools {
         if (!$this->storage->acquireLock($name, CONTINUUM_AGENT, $ttlSeconds)) {
             return ['name' => $name, 'acquired' => false];
         }
-        $this->storage->appendLog(CONTINUUM_AGENT, 'lock_acquire', ['lock' => $name, 'ttl' => $ttlSeconds]);
+        $this->storage->appendLog(CONTINUUM_AGENT, 'advisory_lock_acquire', ['lock' => $name, 'ttl' => $ttlSeconds]);
         return ['name' => $name, 'acquired' => true, 'owner' => CONTINUUM_AGENT, 'ttl' => $ttlSeconds];
     }
 
     #[McpTool(
-        name: 'lock_release',
+        name: 'advisory_lock_release',
+        renamedFrom: 'lock_release',
         description: 'Release a named advisory lock. Only the owner can release; a non-owner release fails.',
         idempotentHint: true
     )]
-    public function lock_release(string $name): array {
+    public function advisory_lock_release(string $name): array {
         $released = $this->storage->releaseLock($name, CONTINUUM_AGENT);
         if ($released) {
-            $this->storage->appendLog(CONTINUUM_AGENT, 'lock_release', ['lock' => $name]);
+            $this->storage->appendLog(CONTINUUM_AGENT, 'advisory_lock_release', ['lock' => $name]);
         }
         return ['name' => $name, 'released' => $released];
     }
 
     #[McpTool(
-        name: 'lock_check',
+        name: 'advisory_lock_check',
+        renamedFrom: 'lock_check',
         description: 'Inspect a named advisory lock: current owner and TTL, or free.',
         readOnlyHint: true
     )]
-    public function lock_check(string $name): array {
+    public function advisory_lock_check(string $name): array {
         $held = $this->storage->checkLock($name);
         if ($held === null) {
             return ['name' => $name, 'free' => true];
