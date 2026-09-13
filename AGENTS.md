@@ -39,7 +39,15 @@ corresponding commented entry in `src/config/settings.ini.sample`.
 Update `docs/CHANGELOG.md` and `docs/UPGRADING.md` alongside behavior
 changes. Documentation is not a follow-up task.
 
+## Serving Topology
+
+Apache NEVER terminates TLS for Continuum. TLS ends at the estate front
+stack (Hitch -> Varnish -> HAProxy/ATS). Apache runs a second vhost on an
+alternate port accepting PROXY protocol v2 (`mod_remoteip`,
+`RemoteIPProxyProtocol On`) plus a plain local :80 vhost for health checks.
+Sample: `etc/apache24/continuum.conf.sample`.
+
 ## Deployment
 
 Production deploys happen ONLY via the estate poudriere-built pkg repo.
-Never scp files or `pkg install /tmp/*.pkg` to continuum.morante.com.
+Never scp files or `pkg install /tmp/*.pkg` to the Continuum node.
