@@ -70,6 +70,11 @@ class ValKeyStore {
         return $result === 1;
     }
 
+    /** Release a lock regardless of owner. Returns true when one was held. */
+    public function forceReleaseLock(string $name): bool {
+        return (int)$this->client->command('DEL', self::NS . 'lock:' . $name) > 0;
+    }
+
     /** Inspect a lock: [owner, ttlSeconds] or null when free. */
     public function checkLock(string $name): ?array {
         $owner = $this->client->command('GET', self::NS . 'lock:' . $name);

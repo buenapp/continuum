@@ -108,6 +108,10 @@ with argument autocompletion for scopes, task ids, and board keys):
 4. **Advisory locks for shared resources**: `advisory_lock_acquire` has
    a TTL and is cooperation-based — holdings don't hard-block anyone.
    Always check `advisory_lock_check` first, and release on completion.
+   Stealing another agent's task claim (`task_claim` on a held task) or
+   force-releasing a foreign lock requires explicit confirmation:
+   modern clients get an interactive prompt; everyone else passes the
+   `confirm` argument (`{"action": "accept", "content": {"approve": true}}`).
 5. **Shared state on the board**: `blackboard_write/read/keys/delete`
    with scopes (`global` by default; an agent-named scope is owned by
    that agent for deletes).

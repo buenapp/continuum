@@ -4,6 +4,7 @@ namespace Continuum\Tests;
 
 use PHPUnit\Framework\TestCase;
 use EnchiladaMCP\ToolRegistry;
+use EnchiladaMCP\ElicitationRequired;
 use Continuum\TaskTools;
 use Continuum\Storage\ValKeyStore;
 use Continuum\Storage\ContinuumStorage;
@@ -84,13 +85,57 @@ class TaskToolsTest extends TestCase {
         $this->assertStringContainsString('CLAIMED_BY', implode("\n", $commands));
     }
 
-    public function testClaimRejectsHeldTask(): void {
+    public function testClaimOnHeldTaskElicitsStealConfirmation(): void {
         $couch = new FakeCouch([
             ['code' => 200, 'body' => ['_rev' => '3-c', 'status' => 'claimed', 'owner' => 'alice']],
+        ]);
+        try {
+            (new TaskTools($this->storage($couch)))->task_claim('T-1');
+            $this->fail('expected ElicitationRequired');
+        } catch (ElicitationRequired $e) {
+            $this->assertSame('confirm', $e->key);
+            $this->assertStringContainsString('held by alice', $e->getMessage());
+            $this->assertSame(['approve'], $e->schema['required']);
+        }
+        $this->assertCount(1, $couch->calls); // GET only; no mutation before an answer
+    }
+
+    public function testClaimStillRejectsNonStealableTask(): void {
+        // done tasks have no owner to steal from and stay a plain failure
+        $couch = new FakeCouch([
+            ['code' => 200, 'body' => ['_rev' => '3-c', 'status' => 'done', 'owner' => null]],
         ]);
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('not claimable');
         (new TaskTools($this->storage($couch)))->task_claim('T-1');
+    }
+
+    public function testClaimStealApprovedTransfersOwnership(): void {
+        $arcade = new FakeArcade();
+        $couch = new FakeCouch([
+            ['code' => 200, 'body' => ['_rev' => '3-c', 'status' => 'in_progress', 'owner' => 'alice', 'title' => 'T']],
+            ['code' => 201, 'body' => ['id' => 'T-1', 'rev' => '4-d']],
+            ['code' => 200, 'body' => ['uuids' => ['ev3']]],
+            ['code' => 201, 'body' => ['id' => 'ev3', 'rev' => '1-y']],
+        ]);
+        $answer = ['action' => 'accept', 'content' => ['approve' => true]];
+        $result = (new TaskTools($this->storage($couch, new FakeRespClient([]), $arcade)))->task_claim('T-1', $answer);
+        $this->assertSame('claimed', $result['status']);
+        $this->assertSame('test-agent', $result['owner']);
+        // prior claim edge removed, event logged as a steal with attribution
+        $deletes = array_filter(array_column(array_column($arcade->calls, 'body'), 'command') , fn($c) => is_string($c) && str_contains($c, 'DELETE'));
+        $this->assertNotEmpty($deletes);
+        $this->assertSame('task_steal', end($couch->calls)['data']['type']);
+        $this->assertSame('alice', end($couch->calls)['data']['data']['from']);
+    }
+
+    public function testClaimStealDeclinedLeavesTaskUntouched(): void {
+        $couch = new FakeCouch([
+            ['code' => 200, 'body' => ['_rev' => '3-c', 'status' => 'claimed', 'owner' => 'alice']],
+        ]);
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('steal declined');
+        (new TaskTools($this->storage($couch)))->task_claim('T-1', ['action' => 'decline', 'content' => []]);
     }
 
     public function testClaimConflictRaisesFriendlyError(): void {

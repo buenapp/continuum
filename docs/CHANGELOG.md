@@ -8,6 +8,22 @@ introduces them (see AGENTS.md). Version parity is enforced between
 
 ### Added
 
+- MRTR elicitation for cross-owner operations (MCP 2026-07-28):
+  - `task_claim` can now steal a task held by another agent
+    (claimed/in_progress/blocked): the first call answers
+    `input_required` with an elicitation form ("steal the claim?") on
+    capability-capable modern clients; approving transfers ownership,
+    clears the prior CLAIMED_BY edge, and logs a `task_steal` event
+    with both parties. Declining keeps the task where it is.
+  - `advisory_lock_release` can force-release a foreign lock the same
+    way (expired/orphaned locks are the intended target); approvals log
+    `advisory_lock_force_release` with the prior owner. Compare-and-delete
+    semantics for owner releases are unchanged.
+  - Both tools accept a `confirm` argument so non-MRTR clients (and
+    scripts) answer deterministically without the round trip.
+  - Blackboard deletes deliberately did NOT gain an override: entry
+    deletion is an authorization rule (author/scope owner), not an
+    advisory courtesy.
 - MCP prompts + completion: the coordination contract is now
   discoverable as prompt templates (`session_bootstrap`,
   `claim_and_serve`, `handoff`, `milestone_sync`) via `prompts/list`

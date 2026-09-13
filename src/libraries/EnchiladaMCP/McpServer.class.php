@@ -763,7 +763,9 @@ class McpServer
 	 */
 	private function modernizeResult(array $result, string $method): array
 	{
-		$result = ['resultType' => 'complete'] + $result;
+		// 'complete' is the default; handlers that produced another type
+		// (e.g. input_required for MRTR elicitation) keep theirs.
+		$result['resultType'] ??= 'complete';
 		if (in_array($method, self::CACHEABLE_LIST_METHODS, true)) {
 			$result['ttlMs'] = $method === 'resources/read' ? $this->readCacheTtlMs : $this->listCacheTtlMs;
 			$result['cacheScope'] = $this->cacheScope;
@@ -799,6 +801,15 @@ class McpServer
 		$name = $params['name'] ?? '';
 		$arguments = $params['arguments'] ?? [];
 
+		// MRTR retry (2026-07-28): fold inputResponses into the tool
+		// arguments; each answer lands under its request key as the full
+		// {action, content} result. Unrecognized shapes are ignored.
+		foreach ((array)($params['inputResponses'] ?? []) as $key => $answer) {
+			if (is_string($key) && is_array($answer) && isset($answer['action']) && is_string($answer['action'])) {
+				$arguments[$key] = $answer;
+			}
+		}
+
 		if (!$this->registry->hasTool($name)) {
 			// Return as a tool-level error result rather than a protocol-level
 			// -32602: several MCP clients treat protocol errors as connection
@@ -811,6 +822,30 @@ class McpServer
 
 		try {
 			$result = $this->registry->callTool($name, $arguments);
+		} catch (ElicitationRequired $e) {
+			// User confirmation needed mid-call. MRTR eligibility: modern-era
+			// request whose client declared the elicitation capability in
+			// _meta — spec forbids inputRequests for anything less.
+			$clientCaps = (array)($params['_meta']['io.modelcontextprotocol/clientCapabilities'] ?? []);
+			if (self::declaredVersionOf(['params' => $params]) !== null && isset($clientCaps['elicitation'])) {
+				return [
+					'resultType' => 'input_required',
+					'inputRequests' => [
+						$e->key => [
+							'method' => 'elicitation/create',
+							'params' => [
+								'mode' => 'form',
+								'message' => $e->getMessage(),
+								'requestedSchema' => $e->schema,
+							],
+						],
+					],
+				];
+			}
+			// Legacy era or no elicitation capability: the call stays a
+			// tool-level failure with the direct-argument escape hatch.
+			return ToolResult::error($e->getMessage()
+				. " — confirmation required; call again with the '{$e->key}' argument set to the answer object {action: \"accept\", content: {...}}.")->toArray();
 		} catch (ToolWarningInterface $e) {
 			// Uncertain-but-not-failed outcome (e.g. upstream timeout where
 			// the server may still have completed the operation). Return as

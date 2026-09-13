@@ -96,6 +96,14 @@ class ContinuumStorage implements ContinuumStorageInterface {
         }
         return $released;
     }
+    /** Break-glass release ignoring ownership; callers log the prior owner. */
+    public function forceReleaseLock(string $name): bool {
+        $released = $this->valkey->forceReleaseLock($name);
+        if ($released) {
+            $this->publishChanges(['continuum://locks', "continuum://locks/{$name}"]);
+        }
+        return $released;
+    }
     public function checkLock(string $name): ?array {
         return $this->valkey->checkLock($name);
     }

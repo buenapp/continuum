@@ -22,6 +22,17 @@ Package: `php84-continuum` from the estate pkg repo. Fresh installs:
 
 ## Compatibility notes
 
+- **MRTR elicitation (unreleased)**: `task_claim` and
+  `advisory_lock_release` gained an optional `confirm` argument;
+  existing calls without it behave exactly as before, except that
+  claiming a task another agent holds now yields a confirmation
+  challenge (2026-07-28 clients with the elicitation capability:
+  interactive prompt; everyone else: a tool-level error explaining the
+  `confirm` escape hatch) instead of the old "not claimable" failure.
+  Owner-only releases and the blackboard delete restriction are
+  unchanged.
+
+
 - **MCP resources, prompts, completion (unreleased)**: purely additive.
   The server now advertises the `resources`, `prompts`, and
   `completions` capabilities and answers the corresponding method
