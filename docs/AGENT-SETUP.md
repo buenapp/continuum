@@ -126,10 +126,11 @@ with argument autocompletion for scopes, task ids, and board keys):
 7. **Handoff, don't abandon**: `task_handoff(task_id, summary, ...)`
    writes the structured handoff document, releases your claim, and
    re-queues the task.
-8. **Promote durable outcomes**: when a handoff or completion produced
-   something permanently true, call `promote_to_memory` (writes to
-   Heliofane). Continuum owns what happens next; Heliofane owns what is
-   true.
+8. **Promote durable outcomes** *(when the operator configured a
+   `[heliofane]` bridge; the tool is not listed otherwise)*: when a
+   handoff or completion produced something permanently true, call
+   `promote_to_memory`. Continuum owns what happens next; Heliofane owns
+   what is true.
 
 Every mutation is attributed to your API key's agent name and written
 to the append-only event log (`coordination_event_log` to inspect).

@@ -145,7 +145,11 @@ $server->register(new AgentTools($storage));
 $server->register(new MessageTools($storage));
 $server->register(new EventTools($storage));
 $server->register(new StatusTools($storage));
-$server->register(new MemoryTools($storage, $heliofaneBridge));
+// Memory promotion rides a Heliofane bridge; when unconfigured the tool
+// is simply not listed (capability discovery beats a runtime error).
+if ($heliofaneBridge !== null) {
+    $server->register(new MemoryTools($storage, $heliofaneBridge));
+}
 
 // Read-only URI surface (MCP resources); tools remain the mutation side.
 $server->register(new BoardResources($storage));
@@ -160,8 +164,9 @@ $server->register(new ContextResources($storage));
 $server->setSupportedSubscriptions(['resourceSubscriptions']);
 
 // Prompt templates (the working contract, versioned with the release)
-// plus argument completion providers.
-$server->register(new CoordinationPrompts($storage));
+// plus argument completion providers. Memory-aware copy follows the
+// bridge's presence.
+$server->register(new CoordinationPrompts($storage, $heliofaneBridge !== null));
 
 // Request metrics: per-tool call counter + duration, flushed to ValKey
 // at end of request (flush failures never propagate).

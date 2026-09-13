@@ -17,7 +17,15 @@ use Continuum\Storage\ContinuumStorage;
  */
 class CoordinationPrompts {
 
-    public function __construct(private ContinuumStorage $storage) {}
+    /**
+     * @param bool $memoryBridge Whether a long-term memory bridge is
+     *                           configured; prompts name
+     *                           promote_to_memory only when it exists.
+     */
+    public function __construct(
+        private ContinuumStorage $storage,
+        private bool $memoryBridge = false,
+    ) {}
 
     /**
      * Session start: register, load context age, pull your inbox.
@@ -92,12 +100,17 @@ class CoordinationPrompts {
         $task = $this->storage->loadTask($task_id)
             ?? throw new \InvalidArgumentException("task {$task_id} not found");
         $title = $task['title'] ?? '';
+        // Name promote_to_memory only when a memory bridge exists
+        // (otherwise the tool is not registered at all).
+        $promoteStep = $this->memoryBridge
+            ? "3. If anything in this session is a durable fact (a decision made, an invariant discovered), call promote_to_memory so it reaches long-term memory. The board owns what happens NEXT; memory owns what is TRUE.\n"
+            . "4. Final agent_heartbeat with working_on cleared."
+            : '3. Final agent_heartbeat with working_on cleared.';
         return [$this->userMessage(
             "Prepare a handoff for {$task_id} (\"{$title}\"):\n"
             . "1. Write the handoff fields honestly: summary (what changed and where), next_steps (the smallest concrete actions remaining), blockers (anything waiting on someone else).\n"
             . "2. Call task_handoff with those fields — it releases your claim atomically and re-queues the task.\n"
-            . "3. If anything in this session is a durable fact (a decision made, an invariant discovered), call promote_to_memory so it reaches long-term memory. The board owns what happens NEXT; memory owns what is TRUE.\n"
-            . "4. Final agent_heartbeat with working_on cleared."
+            . $promoteStep
         )];
     }
 
@@ -110,12 +123,15 @@ class CoordinationPrompts {
         description: 'Explain the record boundaries: what syncs to the canonical tracker, what lives on the board, and what belongs in long-term memory.'
     )]
     public function milestone_sync(): array {
+        $memoryLine = $this->memoryBridge
+            ? "- Long-term memory (Heliofane via promote_to_memory) owns durable TRUTH: decisions, invariants, and outcomes that must survive sessions.\n"
+            . "If you are about to record something, ask: is it coordination (board), a milestone (automatic), or a permanent fact (promote_to_memory)?"
+            : "If you are about to record something, ask: is it coordination (board) or a milestone (automatic)?";
         return [$this->userMessage(
             "Continuum sits between two durable systems; keep the boundaries straight:\n"
             . "- The canonical tracker (Phorge side) receives only MILESTONES: task started (on claim), blocked, and resolved. These fire automatically from task_claim/task_update_status — never hand-edit tracker state.\n"
             . "- The board (Continuum) owns live coordination: task claims, advisory locks, working state, inboxes, and the append-only event log. This is the \"what happens next\" layer.\n"
-            . "- Long-term memory (Heliofane via promote_to_memory) owns durable TRUTH: decisions, invariants, and outcomes that must survive sessions.\n"
-            . "If you are about to record something, ask: is it coordination (board), a milestone (automatic), or a permanent fact (promote_to_memory)?"
+            . $memoryLine
         )];
     }
 

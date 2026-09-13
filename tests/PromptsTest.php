@@ -12,12 +12,12 @@ use Continuum\Storage\ContinuumStorage;
 
 class PromptsTest extends TestCase {
 
-    private function server(FakeCouch $couch, ?FakeRespClient $resp = null): McpServer {
+    private function server(FakeCouch $couch, ?FakeRespClient $resp = null, bool $memoryBridge = true): McpServer {
         $storage = new ContinuumStorage(
             new ValKeyStore($resp ?? new FakeRespClient([])), $couch, new FakeArcade()
         );
         $server = new McpServer('test', '0.0.0');
-        $server->register(new CoordinationPrompts($storage));
+        $server->register(new CoordinationPrompts($storage, $memoryBridge));
         // ref/resource completion validates against registered templates
         $server->register(new TaskResources($storage));
         $server->register(new BoardResources($storage));
@@ -127,6 +127,23 @@ class PromptsTest extends TestCase {
         ])['result'];
         $this->assertSame([], $result['completion']['values']);
         $this->assertSame(0, $result['completion']['total']);
+    }
+
+    public function testHandoffPromptMentionsPromoteOnlyWithMemoryBridge(): void {
+        $mk = fn(FakeCouch $couch) => $couch;
+        $withBridge = new FakeCouch([['code' => 200, 'body' => ['title' => 'T', 'status' => 'claimed']]]);
+        $on = $this->server($withBridge);
+        $textOn = $this->call($on, 'prompts/get', ['name' => 'handoff', 'arguments' => ['task_id' => 'T-1']])['result']['messages'][0]['content']['text'];
+        $this->assertStringContainsString('promote_to_memory', $textOn);
+
+        $withoutBridge = new FakeCouch([['code' => 200, 'body' => ['title' => 'T', 'status' => 'claimed']]]);
+        $off = $this->server($withoutBridge, null, false);
+        $textOff = $this->call($off, 'prompts/get', ['name' => 'handoff', 'arguments' => ['task_id' => 'T-1']])['result']['messages'][0]['content']['text'];
+        $this->assertStringNotContainsString('promote_to_memory', $textOff);
+        $this->assertStringContainsString('task_handoff', $textOff);
+
+        $milestoneOff = $this->call($off, 'prompts/get', ['name' => 'milestone_sync'])['result']['messages'][0]['content']['text'];
+        $this->assertStringNotContainsString('promote_to_memory', $milestoneOff);
     }
 
     public function testCapabilitiesAdvertisePromptsAndCompletions(): void {

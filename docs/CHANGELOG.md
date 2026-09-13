@@ -4,7 +4,7 @@ All notable behavior changes ship in this file alongside the code that
 introduces them (see AGENTS.md). Version parity is enforced between
 `APPLICATION_VERSION`, the FreeBSD port's `DISTVERSION`, and the git tag.
 
-## Unreleased
+## 0.2.1 (2026-09-13)
 
 ### Changed
 
@@ -21,6 +21,12 @@ introduces them (see AGENTS.md). Version parity is enforced between
   (`- Fix parser [in_progress, p1, @zed] (T-68C9770B)`). Task summaries
   in tool output now include `phorge_task_id`. ID generation itself is
   unchanged.
+- `promote_to_memory` is now registered only when `[heliofane]` is
+  configured (both entry points) — capability discovery instead of a
+  runtime "not configured" error. The `handoff` and `milestone_sync`
+  prompt templates mention memory promotion only when the bridge exists,
+  so unconfigured deployments never steer agents at a tool that isn't
+  there.
 
 ## 0.2.0 (2026-09-13)
 

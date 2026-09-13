@@ -3,7 +3,7 @@
 Continuum follows semver. `UPGRADING.md` lists everything an operator must
 do when moving between versions; it ships with the code that requires it.
 
-## Unreleased
+## 0.2.1
 
 No operator action: no settings keys, no engine schema changes, no
 deploy differences beyond `pkg upgrade`-equivalents once tagged.
