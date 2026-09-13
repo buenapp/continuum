@@ -54,6 +54,12 @@ tests/         PHPUnit suite
 docs/          design documents
 ```
 
+## Deploy / connect
+
+Packaged install and vhost setup: see `docs/UPGRADING.md` and
+`etc/apache24/continuum.conf.sample`. Agent client configuration and the
+per-session coordination protocol: `docs/AGENT-SETUP.md`.
+
 ## Development
 
 ```sh
