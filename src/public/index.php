@@ -24,8 +24,13 @@ use Continuum\AgentTools;
 use Continuum\MessageTools;
 use Continuum\EventTools;
 use Continuum\StatusTools;
+use Continuum\MemoryTools;
 use Continuum\Dashboard;
 use Continuum\Storage\ContinuumStorage;
+use Continuum\Bridge\NullMilestoneSyncAdapter;
+use Continuum\Bridge\HeliofaneMcpBridge;
+use Continuum\Bridge\EmbeddingProvider;
+use Continuum\Bridge\EmbeddingRanker;
 
 // Health probe (unauthenticated; no sensitive data)
 $requestUri = parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH);
@@ -80,15 +85,44 @@ if ($requestUri === '/' && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
     exit;
 }
 
+// Milestone sync is adapter-based; only the no-op adapter exists until a
+// tracker integration ships. Unknown values are a hard config error.
+$milestoneAdapter = new NullMilestoneSyncAdapter();
+$milestoneName = $SETTINGS?->getString('milestones', 'adapter', 'none') ?? 'none';
+if ($milestoneName !== 'none') {
+    throw new \RuntimeException("unknown milestones adapter '{$milestoneName}' (only 'none' is built)");
+}
+
+// Optional bridges: semantic ranking + long-term memory promotion.
+$ranker = null;
+$embeddingsUrl = trim($SETTINGS?->getString('embeddings', 'url', '') ?? '');
+if ($embeddingsUrl !== '') {
+    $ranker = new EmbeddingRanker(
+        new EmbeddingProvider($embeddingsUrl),
+        $SETTINGS->getString('embeddings', 'model', 'all-MiniLM-L6-v2'),
+        $SETTINGS->getString('embeddings', 'api_key', '')
+    );
+}
+$heliofaneBridge = null;
+$heliofaneUrl = trim($SETTINGS?->getString('heliofane', 'url', '') ?? '');
+if ($heliofaneUrl !== '') {
+    $heliofaneBridge = new HeliofaneMcpBridge(
+        $heliofaneUrl,
+        $SETTINGS->getString('heliofane', 'api_key', ''),
+        $SETTINGS->getString('heliofane', 'mcp_path', 'mcp')
+    );
+}
+
 $server->register(new ServerTools());
 $server->register(new BoardTools($storage));
-$server->register(new TaskTools($storage));
+$server->register(new TaskTools($storage, $milestoneAdapter));
 $server->register(new LockTools($storage));
-$server->register(new ContextTools($storage));
+$server->register(new ContextTools($storage, $ranker));
 $server->register(new AgentTools($storage));
 $server->register(new MessageTools($storage));
 $server->register(new EventTools($storage));
 $server->register(new StatusTools($storage));
+$server->register(new MemoryTools($storage, $heliofaneBridge));
 
 $transport = new HttpSseTransport(
     $server->handleRequest(...),

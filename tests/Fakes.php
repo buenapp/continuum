@@ -54,3 +54,22 @@ class FakeArcade extends ArcadeDBStore {
         return array_shift($this->script) ?? ['result' => []];
     }
 }
+
+/** Records milestone syncs. */
+class FakeMilestoneSync implements \Continuum\Bridge\MilestoneSyncAdapterInterface {
+    /** @var array<int,array> */ public array $syncs = [];
+    public function syncMilestone(string $taskId, string $milestone, array $data): void {
+        $this->syncs[] = ['task' => $taskId, 'milestone' => $milestone, 'data' => $data];
+    }
+}
+
+/** Scripted Heliofane bridge: no HTTP. */
+class FakeHeliofaneBridge extends \Continuum\Bridge\HeliofaneMcpBridge {
+    /** @var array<int,array> */ public array $calls = [];
+    /** @var array<int,array> */ private array $script;
+    public function __construct(array $script = []) { $this->script = $script; }
+    public function callTool(string $tool, array $arguments): array {
+        $this->calls[] = ['tool' => $tool, 'arguments' => $arguments];
+        return array_shift($this->script) ?? ['ok' => true, 'result' => [], 'error' => null];
+    }
+}

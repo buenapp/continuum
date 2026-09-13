@@ -4,6 +4,7 @@ namespace Continuum;
 
 use EnchiladaMCP\McpTool;
 use Continuum\Storage\ContinuumStorage;
+use Continuum\Bridge\RankingProviderInterface;
 
 /**
  * context_pack: the curated, token-budgeted brief agents are steered to
@@ -23,14 +24,17 @@ class ContextTools {
         'pending' => 3, 'review' => 4, 'done' => 5, 'cancelled' => 6,
     ];
 
-    public function __construct(private ContinuumStorage $storage) {}
+    public function __construct(
+        private ContinuumStorage $storage,
+        private ?RankingProviderInterface $ranker = null,
+    ) {}
 
     #[McpTool(
         name: 'context_pack',
-        description: 'Return a curated, ranked, token-budgeted brief of the blackboard: focused task (if any) with dependencies, open tasks in scope, recent board entries, and agent presence. Prefer this over raw scans at session start.',
+        description: 'Return a curated, ranked, token-budgeted brief of the blackboard: focused task (if any) with dependencies, open tasks in scope, recent board entries, and agent presence. Prefer this over raw scans at session start. `query` activates relevance ranking of tasks and board entries (semantic when embeddings are configured, lexical otherwise).',
         readOnlyHint: true
     )]
-    public function context_pack(?string $scope = null, ?string $taskId = null, int $tokenBudget = 2000): array {
+    public function context_pack(?string $scope = null, ?string $taskId = null, int $tokenBudget = 2000, ?string $query = null): array {
         if ($tokenBudget < 100) { $tokenBudget = 100; }
         $budget = $tokenBudget * self::CHARS_PER_TOKEN;
         $used = 0;
@@ -88,27 +92,52 @@ class ContextTools {
             $p = ($b['priority'] ?? 2) <=> ($a['priority'] ?? 2);
             return $p !== 0 ? $p : strcmp($b['updated_at'] ?? '', $a['updated_at'] ?? '');
         });
-        $emit("\n## Open tasks (" . count($tasks) . ')');
-        foreach ($tasks as $doc) {
+
+        // Relevance ranking replaces the default ordering when a ranker is
+        // configured and the caller supplied a query (or a focus task).
+        if (($query === null || $query === '') && !empty($task['title'] ?? null)) { $query = $task['title']; }
+        $rankItems = function (array $items) use ($query): array {
+            if ($this->ranker === null || empty($items)) { return $items; }
+            $q = ($query !== null && $query !== '') ? $query : null;
+            if ($q === null) { return $items; }
+            try {
+                return $this->ranker->rank($items, $q);
+            } catch (\Throwable) {
+                return $items; // ranking must never break the pack
+            }
+        };
+
+        $taskItems = array_map(function ($doc) {
             $owner = $doc['owner'] ?? null;
-            $line = '- ' . $doc['_id'] . ' [p' . ($doc['priority'] ?? 2) . ', ' . ($doc['status'] ?? '?')
-                . ($owner ? ', @' . $owner : '') . '] ' . ($doc['title'] ?? '');
-            if (!$emit($line)) { $omitted['tasks']++; }
+            return [
+                'text' => ($doc['title'] ?? '') . ' ' . ($doc['status'] ?? ''),
+                'line' => '- ' . $doc['_id'] . ' [p' . ($doc['priority'] ?? 2) . ', ' . ($doc['status'] ?? '?')
+                    . ($owner ? ', @' . $owner : '') . '] ' . ($doc['title'] ?? ''),
+            ];
+        }, $tasks);
+        $emit("\n## Open tasks (" . count($tasks) . ')');
+        foreach ($rankItems($taskItems) as $item) {
+            if (!$emit($item['line'])) { $omitted['tasks']++; }
         }
 
         // Board entries: own scope + global, recent first
-        foreach ([$scope ?? 'global', 'global'] as $board) {
+        foreach (array_unique([$scope ?? 'global', 'global']) as $board) {
             $docs = $this->storage->listBoardDocs($board);
             if (empty($docs)) { continue; }
             uasort($docs, fn($a, $b) => strcmp($b['updated_at'] ?? '', $a['updated_at'] ?? ''));
             $emit("\n## Board: {$board}");
+            $boardItems = [];
             foreach ($docs as $key => $doc) {
                 $value = $doc['value'] ?? null;
                 $text = is_string($value) ? $value : json_encode($value, JSON_UNESCAPED_SLASHES);
-                $line = '- ' . $key . ' (by ' . ($doc['updated_by'] ?? '?') . '): ' . $text;
-                if (!$emit($line)) { $omitted['board']++; }
+                $boardItems[] = [
+                    'text' => $key . ' ' . $text,
+                    'line' => '- ' . $key . ' (by ' . ($doc['updated_by'] ?? '?') . '): ' . $text,
+                ];
             }
-            if ($board === 'global') { break; }
+            foreach ($rankItems($boardItems) as $item) {
+                if (!$emit($item['line'])) { $omitted['board']++; }
+            }
         }
 
         // Agent presence

@@ -4,6 +4,8 @@ namespace Continuum;
 
 use EnchiladaMCP\McpTool;
 use Continuum\Storage\ContinuumStorage;
+use Continuum\Bridge\MilestoneSyncAdapterInterface;
+use Continuum\Bridge\NullMilestoneSyncAdapter;
 
 /**
  * Task tools: durable tasks on CouchDB, mirrored vertices in ArcadeDB,
@@ -18,7 +20,14 @@ class TaskTools {
 
     public const STATUSES = ['pending', 'claimed', 'in_progress', 'blocked', 'review', 'done', 'cancelled'];
 
-    public function __construct(private ContinuumStorage $storage) {}
+    private MilestoneSyncAdapterInterface $milestones;
+
+    public function __construct(
+        private ContinuumStorage $storage,
+        ?MilestoneSyncAdapterInterface $milestones = null,
+    ) {
+        $this->milestones = $milestones ?? new NullMilestoneSyncAdapter();
+    }
 
     /**
      * Create a task. Returns the new task id; dependencies (if any) are
@@ -119,6 +128,9 @@ class TaskTools {
         $this->saveGuarded($taskId, $task, $task['_rev'] ?? null);
         $this->storage->mapAgentRelationship(CONTINUUM_AGENT, $taskId);
         $this->storage->appendLog(CONTINUUM_AGENT, 'task_claim', ['task' => $taskId]);
+        $this->milestones->syncMilestone($taskId, 'started', [
+            'agent' => CONTINUUM_AGENT, 'title' => $task['title'] ?? '', 'phorge_task_id' => $task['phorge_task_id'] ?? null,
+        ]);
         return $this->summarize($taskId, $task);
     }
 
@@ -156,6 +168,14 @@ class TaskTools {
             $this->storage->unclaim($taskId);
         }
         $this->storage->appendLog(CONTINUUM_AGENT, 'task_status', ['task' => $taskId, 'from' => $from, 'to' => $status, 'note' => $note]);
+        if ($status === 'blocked' || $status === 'done') {
+            $this->milestones->syncMilestone($taskId, $status === 'blocked' ? 'blocked' : 'resolved', [
+                'agent' => CONTINUUM_AGENT, 'title' => $task['title'] ?? '',
+                'reason' => $status === 'blocked' ? $note : null,
+                'summary' => $status === 'done' ? $note : null,
+                'phorge_task_id' => $task['phorge_task_id'] ?? null,
+            ]);
+        }
         return $this->summarize($taskId, $task);
     }
 

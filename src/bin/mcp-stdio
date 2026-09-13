@@ -25,7 +25,9 @@ use Continuum\AgentTools;
 use Continuum\MessageTools;
 use Continuum\EventTools;
 use Continuum\StatusTools;
+use Continuum\MemoryTools;
 use Continuum\Storage\ContinuumStorage;
+use Continuum\Bridge\HeliofaneMcpBridge;
 
 // stdio has no transport auth; attribute everything to a fixed identity.
 defined('CONTINUUM_AGENT') || define('CONTINUUM_AGENT', 'stdio');
@@ -54,6 +56,18 @@ $server->register(new AgentTools($storage));
 $server->register(new MessageTools($storage));
 $server->register(new EventTools($storage));
 $server->register(new StatusTools($storage));
+
+// Memory bridge is optional; promote_to_memory reports when unconfigured.
+$heliofaneBridge = null;
+$heliofaneUrl = trim($SETTINGS?->getString('heliofane', 'url', '') ?? '');
+if ($heliofaneUrl !== '') {
+    $heliofaneBridge = new HeliofaneMcpBridge(
+        $heliofaneUrl,
+        $SETTINGS->getString('heliofane', 'api_key', ''),
+        $SETTINGS->getString('heliofane', 'mcp_path', 'mcp')
+    );
+}
+$server->register(new MemoryTools($storage, $heliofaneBridge));
 
 // Run via StdioTransport: primitives in (handler, progress emitter),
 // notifier back out. The loop is strict opt-in — with Comal not

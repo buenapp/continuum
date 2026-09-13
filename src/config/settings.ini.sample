@@ -35,8 +35,21 @@ debug = false
 ;pass = ""
 ;database = continuum
 
-; Optional semantic ranking of board entries / context packs (Phase 3)
+; Optional semantic ranking for context_pack (llama.cpp/OpenAI-compatible
+; embeddings endpoint). Without it, context_pack falls back to lexical
+; ranking when a query is given.
 [embeddings]
-;url = ""
+;url = https://embeddings.example.com
 ;model = all-MiniLM-L6-v2
 ;api_key = ""
+
+; Long-term memory bridge (Heliofane MCP server) for promote_to_memory
+[heliofane]
+;url = https://heliofane.example.com
+;api_key = ""
+;mcp_path = mcp
+
+; Milestone sync to an external work tracker. Only 'none' ships; the
+; adapter interface is the seam for future Phorge/Conduit integration.
+[milestones]
+adapter = none

@@ -8,6 +8,21 @@ introduces them (see AGENTS.md). Version parity is enforced between
 
 ### Added
 
+- Phase 6 (bridges):
+  - Milestone sync adapter seam (`Continuum\Bridge\MilestoneSyncAdapterInterface`)
+    + `NullMilestoneSyncAdapter`. `task_claim` fires `started`;
+    `task_update_status` fires `blocked`/`resolved` with reason/summary and
+    `phorge_task_id`. No tracker implementation ships — the interface is
+    the anti-corruption seam for a future Phorge/Conduit adapter;
+    `[milestones] adapter` accepts only `none`.
+  - `promote_to_memory` — distilled facts promoted to long-term memory
+    (Heliofane) at handoff/completion via `HeliofaneMcpBridge`
+    (initialize/SSE handshake, stateless-OK, read of `note` then `remember`
+    fallback). Needs `[heliofane]` config; errors cleanly when unset.
+  - `context_pack` gains `query` param + ranking seam: `LexicalRanker`
+    default; `EmbeddingRanker` when `[embeddings] url` is set
+    (OpenAI-compatible endpoint, cosine re-rank of tasks/board entries).
+    Ranking failures degrade to default ordering, never break the pack.
 - Phase 5 tool wave (liveness, messaging, visibility):
   - `agent_register` / `agent_heartbeat` — presence records with
     capabilities, label, and `working_on`; heartbeats are churn and are
