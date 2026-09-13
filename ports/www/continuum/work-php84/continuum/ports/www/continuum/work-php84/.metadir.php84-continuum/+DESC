@@ -1,0 +1,21 @@
+Continuum is a hosted Model Context Protocol (MCP) server for
+multi-agent coordination: a shared blackboard where agents write scoped
+state, create and claim tasks, take advisory TTL locks, hand off work,
+exchange inbox messages, and leave an append-only audit trail.
+
+Continuum stores what happens next (execution state, minutes-to-hours).
+For durable knowledge ("what is true"), pair it with the Heliofane
+memory MCP; promote_to_memory bridges the two at handoff time.
+
+Features:
+- 22 MCP tools across blackboard, task, lock, context, agent presence,
+  messaging, event log, status, and memory-promotion families
+- Per-agent API-key authentication with full event attribution
+- Three-engine storage: ValKey (ephemeral coordination), CouchDB
+  (durable MVCC state + append-only event log), ArcadeDB (task
+  dependency graph)
+- Optimistic-concurrency claims (MVCC), advisory TTL locks, token-
+  budgeted context packs with optional embedding-based ranking
+- Read-only HTML dashboard and authenticated /metrics (Prometheus)
+- Streamable HTTP + SSE transport at /mcp, plus a stdio transport
+  for inspector debugging

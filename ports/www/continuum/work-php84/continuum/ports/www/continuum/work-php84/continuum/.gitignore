@@ -1,0 +1,15 @@
+# Configuration (never commit real settings or credentials)
+src/config/settings.ini
+src/config/local.conf.php
+
+# Temporary files
+src/temp/
+*.log
+
+# Test cache
+.phpunit.cache/
+
+# IDE
+.vscode/
+.idea/
+*.swp

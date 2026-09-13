@@ -99,6 +99,9 @@ class StdioTransport
 	/** @var string Partial-line carry buffer for stdin */
 	private string $buffer = '';
 
+	/** @var bool stdin reached EOF while a request was in flight; stop after it answers */
+	private bool $stdinEof = false;
+
 	/** @var array<int,array<string,mixed>> Requests queued behind the in-flight call */
 	private array $pending = [];
 
@@ -304,6 +307,22 @@ class StdioTransport
 				$mode = 'blocking';
 			}
 		}
+
+		if ($mode === 'reactor') {
+			// Reactor EOF delivery assumes a pollable stream. A regular
+			// file as stdin (`server < request.json`, the natural way to
+			// smoke-test a server) delivers bytes through EVFILT_READ but
+			// never reports another event once the final byte is consumed
+			// — EV_EOF would have to arrive as a state change on a fd that
+			// does not change — so the server would wait forever for more
+			// input. Blocking reads report EOF on regular files correctly;
+			// degrade instead of hanging.
+			$stat = fstat(STDIN);
+			if (is_array($stat) && ($stat['mode'] & 0170000) === 0100000) {   // S_ISREG
+				$this->log('NOTE stdin is a regular file; reactor I/O cannot observe its EOF — using blocking I/O');
+				$mode = 'blocking';
+			}
+		}
 		$this->resolvedMode = $mode;
 
 		if ($mode === 'reactor') {
@@ -436,6 +455,14 @@ class StdioTransport
 		// That signal flows from the tool's own HTTP waits, not from
 		// the transport — the transport is stuck in dispatch() and has
 		// no loop to run a progress timer on.
+		// Consecutive stdin read errors that never report EOF. A brief
+		// transient (EINTR) retries silently; the failure mode that
+		// motivated this budget is the Windows anonymous pipe: once the
+		// host closes its end, ReadFile fails (ERROR_BROKEN_PIPE) while
+		// PHP's feof() still reports false, so without a bound the loop
+		// below spins on fgets() at full CPU for the lifetime of the
+		// orphaned process.
+		$stdinReadErrors = 0;
 		while ($this->running) {
 			if (function_exists('pcntl_signal_dispatch')) {
 				pcntl_signal_dispatch();
@@ -449,8 +476,16 @@ class StdioTransport
 					$this->log('stdin EOF, stopping');
 					break;
 				}
+				if (++$stdinReadErrors >= 10) {
+					$this->log('stdin read failed repeatedly without EOF (broken pipe?); treating as EOF and stopping');
+					break;
+				}
+				// Cheap spaced retries: this is error handling on the
+				// Windows blocking fallback, not readiness polling.
+				usleep(50000);
 				continue;
 			}
+			$stdinReadErrors = 0;
 
 			$this->noteWire();
 			$line = trim($line);
@@ -485,6 +520,18 @@ class StdioTransport
 	{
 		$chunk = fread($stream, 65536);
 		if ($chunk === false || ($chunk === '' && feof($stream))) {
+			// Do not lose an in-flight reply: 'printf req | server' closes
+			// stdin immediately after the request, and punting here would
+			// leave the caller with a closed stream and no response.
+			if ($this->loop !== null && $this->stdinWatcher !== null) {
+				$this->loop->cancel($this->stdinWatcher);
+				$this->stdinWatcher = null;
+			}
+			if ($this->inFlight || !empty($this->pending)) {
+				$this->stdinEof = true;
+				$this->log('stdin EOF; finishing in-flight request(s) before stopping');
+				return;
+			}
 			$this->log('stdin EOF, stopping');
 			$this->stop();
 			return;
@@ -560,6 +607,11 @@ class StdioTransport
 					$this->loop->delay(0.0, function () {
 						$this->drainPending();
 					});
+				} elseif ($this->stdinEof) {
+					// The request that outlived its stdin is answered;
+					// nothing further can arrive, shut down.
+					$this->log('in-flight request(s) answered after stdin EOF; stopping');
+					$this->stop();
 				}
 			}
 		});
@@ -615,6 +667,30 @@ class StdioTransport
 
 		if (empty($response)) {
 			return;
+		}
+
+		// subscriptions/listen (2026-07-28): the protocol handler answers
+		// with a stream marker (EnchiladaMCP\McpServer::SUBSCRIPTION_STREAM_MARK,
+		// restated as a literal — this library does not depend on the
+		// protocol package). stdio is single-channel and this transport
+		// offers no notification multiplexing, so the subscription is
+		// acknowledged and gracefully closed immediately.
+		if (array_key_exists('__subscription_stream', $response)) {
+			$mark = $response['__subscription_stream'];
+			$subscriptionId = $mark['subscriptionId'] ?? null;
+			$ack = is_array($mark['notifications'] ?? null) ? $mark['notifications'] : [];
+			$this->sendNotification('notifications/subscriptions/acknowledged', [
+				'_meta' => ['io.modelcontextprotocol/subscriptionId' => $subscriptionId],
+				'notifications' => $ack === [] ? new \stdClass() : $ack,
+			]);
+			$response = [
+				'jsonrpc' => '2.0',
+				'id' => $subscriptionId,
+				'result' => [
+					'resultType' => 'complete',
+					'_meta' => ['io.modelcontextprotocol/subscriptionId' => $subscriptionId],
+				],
+			];
 		}
 
 		$output = json_encode($response, JSON_UNESCAPED_SLASHES);

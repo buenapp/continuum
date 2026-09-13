@@ -51,5 +51,6 @@ debug = false
 
 ; Milestone sync to an external work tracker. Only 'none' ships; the
 ; adapter interface is the seam for future Phorge/Conduit integration.
+; NOTE: bare 'none'/true/false/yes/no parse as booleans — quote it.
 [milestones]
-adapter = none
+;adapter = "none"

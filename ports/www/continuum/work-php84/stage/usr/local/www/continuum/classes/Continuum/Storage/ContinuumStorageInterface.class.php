@@ -22,6 +22,8 @@ interface ContinuumStorageInterface {
     public function publishSignal(string $channel, array $signal): void;
     public function acquireLock(string $name, string $ownerId, int $ttlSeconds): bool;
     public function releaseLock(string $name, string $ownerId): bool;
+    /** Break-glass release ignoring ownership (MRTR-confirmed steals only). */
+    public function forceReleaseLock(string $name): bool;
     public function checkLock(string $name): ?array;
     public function heartbeat(string $agentId, array $meta = []): void;
     public function agents(): array;

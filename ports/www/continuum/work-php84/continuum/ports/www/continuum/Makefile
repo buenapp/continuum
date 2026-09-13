@@ -2,32 +2,30 @@ PORTNAME=	continuum
 DISTVERSIONPREFIX=	v
 DISTVERSION=	0.1.0
 CATEGORIES=	www
-
 MASTER_SITES=	https://pacyworld.dev/buenapp/continuum/archive/
+PKGNAMEPREFIX=	${PHP_PKGNAMEPREFIX}
 DISTNAME=	v${DISTVERSION}
 DIST_SUBDIR=	${PORTNAME}
-WRKSRC=		${WRKDIR}/continuum
 
 MAINTAINER=	justin@morante.net
-COMMENT=	Hosted blackboard coordination MCP server for multi-agent orchestration
+COMMENT=	Blackboard coordination MCP server for multi-agent orchestration
 WWW=		https://pacyworld.dev/buenapp/continuum
 
 LICENSE=	BSD3CLAUSE
 LICENSE_FILE=	${WRKSRC}/LICENSE
 
 USES=		php:flavors
-USE_PHP=	ctype curl filter json mbstring
-PKGNAMEPREFIX=	${PHP_PKGNAMEPREFIX}
-
-OPTIONS_DEFINE=	EXAMPLES
-
-NO_ARCH=	yes
-NO_BUILD=	yes
+USE_PHP=	ctype curl filter mbstring
 
 WWWDIR=		${PREFIX}/www/${PORTNAME}
-
+NO_ARCH=	yes
+NO_BUILD=	yes
 SUB_FILES=	pkg-message
 SUB_LIST=	WWWDIR=${WWWDIR} EXAMPLESDIR=${EXAMPLESDIR}
+
+WRKSRC=		${WRKDIR}/continuum
+
+OPTIONS_DEFINE=	EXAMPLES
 
 do-install:
 	@${MKDIR} ${STAGEDIR}${WWWDIR}
@@ -44,6 +42,7 @@ do-install:
 	@${MKDIR} ${STAGEDIR}${WWWDIR}/public
 	@${MKDIR} ${STAGEDIR}${WWWDIR}/system
 	${INSTALL_SCRIPT} ${WRKSRC}/src/bin/mcp-stdio ${STAGEDIR}${WWWDIR}/bin/
+	${INSTALL_SCRIPT} ${WRKSRC}/src/bin/smoke-test ${STAGEDIR}${WWWDIR}/bin/
 	${INSTALL_DATA} ${WRKSRC}/src/classes/Continuum/*.php ${STAGEDIR}${WWWDIR}/classes/Continuum/
 	${INSTALL_DATA} ${WRKSRC}/src/classes/Continuum/Bridge/*.php ${STAGEDIR}${WWWDIR}/classes/Continuum/Bridge/
 	${INSTALL_DATA} ${WRKSRC}/src/classes/Continuum/Storage/*.php ${STAGEDIR}${WWWDIR}/classes/Continuum/Storage/

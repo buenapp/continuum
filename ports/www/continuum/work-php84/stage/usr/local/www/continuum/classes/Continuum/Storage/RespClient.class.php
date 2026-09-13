@@ -57,6 +57,47 @@ class RespClient {
         stream_set_timeout($this->stream, (int)$this->timeout, (int)(($this->timeout - (int)$this->timeout) * 1e6));
     }
 
+    /**
+     * Subscribe this connection to a pub/sub channel. Afterwards the
+     * connection is push-only: frames arrive via readPush(), and command()
+     * must not be used until the subscription ends.
+     */
+    public function subscribe(string $channel): void {
+        $confirmation = $this->command('SUBSCRIBE', $channel);
+        if (!is_array($confirmation) || ($confirmation[0] ?? null) !== 'subscribe' || ($confirmation[1] ?? null) !== $channel) {
+            throw new \RuntimeException("RESP SUBSCRIBE failed for {$channel}");
+        }
+    }
+
+    /**
+     * Read one push frame from a subscribed connection. An idle timeout
+     * is not an error (returns null); a closed connection is.
+     *
+     * @return array|null typically ['message', channel, payload]; null when
+     *                    nothing arrived within $timeoutSeconds
+     */
+    public function readPush(float $timeoutSeconds): ?array {
+        $this->connect();
+        $sec = (int)$timeoutSeconds;
+        stream_set_timeout($this->stream, $sec, (int)(fmod($timeoutSeconds, 1.0) * 1e6));
+        $line = fgets($this->stream);
+        if ($line === false) {
+            $meta = stream_get_meta_data($this->stream);
+            if (!empty($meta['timed_out'])) { return null; }
+            throw new \RuntimeException('RESP read failed (connection closed)');
+        }
+        $line = rtrim($line, "\r\n");
+        if ($line === '' || $line[0] !== '*') {
+            throw new \RuntimeException("RESP protocol error: push frame is not an array ('{$line}')");
+        }
+        $count = (int)substr($line, 1);
+        $frame = [];
+        for ($i = 0; $i < $count; $i++) {
+            $frame[] = $this->readReply();
+        }
+        return $frame;
+    }
+
     private function readReply(): mixed {
         $line = $this->readLine();
         if ($line === null) { throw new \RuntimeException('RESP read failed (connection closed)'); }

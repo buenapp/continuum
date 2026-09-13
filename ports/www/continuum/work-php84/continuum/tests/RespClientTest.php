@@ -62,4 +62,36 @@ class RespClientTest extends TestCase {
         $written = stream_get_contents($this->serverEnd);
         $this->assertSame("*3\r\n\$3\r\nSET\r\n\$1\r\nk\r\n\$1\r\nv\r\n", $written);
     }
+
+    public function testSubscribeConfirmAndPushFrame(): void {
+        $client = $this->clientFor(
+            "*3\r\n\$9\r\nsubscribe\r\n\$1\r\na\r\n:1\r\n"
+            . "*3\r\n\$7\r\nmessage\r\n\$1\r\na\r\n\$7\r\n{\"x\":1}\r\n"
+        );
+        $client->subscribe('a');
+        $this->assertSame(['message', 'a', '{"x":1}'], $client->readPush(1.0));
+    }
+
+    public function testReadPushTimeoutReturnsNull(): void {
+        $pair = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP);
+        $this->serverEnd = $pair[1]; // held open, nothing written
+        $client = new RespClient('127.0.0.1', 0, 5.0, $pair[0]);
+        $this->assertNull($client->readPush(0.05));
+    }
+
+    public function testReadPushClosedConnectionRaises(): void {
+        $pair = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP);
+        fclose($pair[1]);
+        $client = new RespClient('127.0.0.1', 0, 5.0, $pair[0]);
+        $this->expectException(\RuntimeException::class);
+        $client->readPush(1.0);
+    }
+
+    public function testSubscribeRejectsBadConfirmation(): void {
+        // An -ERR reply surfaces before the confirmation shape check.
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('RESP error: ERR nope');
+        $this->clientFor("-ERR nope\r\n")->subscribe('a');
+    }
 }
+

@@ -8,8 +8,11 @@ For durable knowledge ("what is true"), pair it with the Heliofane
 memory MCP; promote_to_memory bridges the two at handoff time.
 
 Features:
-- 22 MCP tools across blackboard, task, lock, context, agent presence,
-  messaging, event log, status, and memory-promotion families
+- MCP tools for blackboard, tasks, locks, context packs, agent presence,
+  messaging, event log, status, and memory promotion — plus MCP
+  resources (continuum:// URIs), prompt templates, argument completion,
+  resource-change subscriptions, and MRTR confirmation prompts on
+  cross-owner claim steals and lock releases
 - Per-agent API-key authentication with full event attribution
 - Three-engine storage: ValKey (ephemeral coordination), CouchDB
   (durable MVCC state + append-only event log), ArcadeDB (task

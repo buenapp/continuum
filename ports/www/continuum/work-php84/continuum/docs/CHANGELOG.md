@@ -4,10 +4,71 @@ All notable behavior changes ship in this file alongside the code that
 introduces them (see AGENTS.md). Version parity is enforced between
 `APPLICATION_VERSION`, the FreeBSD port's `DISTVERSION`, and the git tag.
 
-## Unreleased
+## 0.2.0 (2026-09-13)
 
 ### Added
 
+- MRTR elicitation for cross-owner operations (MCP 2026-07-28):
+  - `task_claim` can now steal a task held by another agent
+    (claimed/in_progress/blocked): the first call answers
+    `input_required` with an elicitation form ("steal the claim?") on
+    capability-capable modern clients; approving transfers ownership,
+    clears the prior CLAIMED_BY edge, and logs a `task_steal` event
+    with both parties. Declining keeps the task where it is.
+  - `advisory_lock_release` can force-release a foreign lock the same
+    way (expired/orphaned locks are the intended target); approvals log
+    `advisory_lock_force_release` with the prior owner. Compare-and-delete
+    semantics for owner releases are unchanged.
+  - Both tools accept a `confirm` argument so non-MRTR clients (and
+    scripts) answer deterministically without the round trip.
+  - Blackboard deletes deliberately did NOT gain an override: entry
+    deletion is an authorization rule (author/scope owner), not an
+    advisory courtesy.
+- MCP prompts + completion: the coordination contract is now
+  discoverable as prompt templates (`session_bootstrap`,
+  `claim_and_serve`, `handoff`, `milestone_sync`) via `prompts/list`
+  and `prompts/get`; the bootstrap prompt links the context-pack
+  resource for the requested scope. `completion/complete` suggests live
+  values — scopes, task ids (open first), board keys (scope-aware via
+  completion context), agent ids, lock names — for both prompt
+  arguments and resource template placeholders. Unknown prompts/refs
+  answer -32602; capabilities (`prompts`, `completions`) advertised on
+  both entry points.
+- Subscribe-and-Notify (MCP 2026-07-28): `subscriptions/listen` on the
+  `/mcp` endpoint opens a long-lived SSE stream of
+  `notifications/resources/updated` for the subscribed resource URIs —
+  `continuum://tasks`, `continuum://tasks/{id}`, `continuum://board/...`,
+  `continuum://locks`, `continuum://events`, `continuum://agents/...`.
+  Mutations publish changed URIs through ValKey pub/sub (cross-worker
+  fan-out); the supported set is `resourceSubscriptions` only.
+  Bare heartbeat ticks deliberately do not notify; meta changes
+  (register, working-on, capabilities, label) do. stdio acknowledges and
+  gracefully closes listen requests (no multiplexing without a Comal
+  loop). Legacy-era clients get -32601, matching their capability map.
+- MCP resources: the board's read surface is now URI-addressable
+  (`resources/list`, `resources/templates/list`, `resources/read`; the
+  `resources` capability is advertised automatically). Tools remain the
+  mutation side; nothing about the tool surface changed.
+  - Statics: `continuum://board/index` (all scopes + keys with
+    attribution), `continuum://tasks` (non-terminal tasks), `continuum://agents`
+    (presence directory), `continuum://locks` (held advisory locks),
+    `continuum://events` (50-event tail).
+  - Templates: `continuum://board/{scope}/{key}`, `continuum://snapshot/{scope}`,
+    `continuum://tasks/{id}` (full card incl. notes, handoffs, graph
+    neighborhood), `continuum://agents/{id}`, `continuum://locks/{name}`,
+    `continuum://events/since/{timestamp}`, and
+    `continuum://context/pack/{scope}` — the session-start brief as a
+    `text/markdown` resource clients can attach directly.
+  - Per-read `lastModified` annotations come from the underlying doc
+    timestamps (board entries, tasks, events) and heartbeat times
+    (agents); `audience: assistant` on everything, `priority: 0.9` on the
+    context pack. Read results carry `ttlMs: 0` on modern-protocol
+    requests — the board is live data.
+  - Registered on both entry points: `/mcp` (Streamable HTTP) and
+    `bin/mcp-stdio`.
+- Release engineering: BSD-3-Clause LICENSE, `ports/www/continuum`
+  FreeBSD port (php84-continuum, installs to `/usr/local/www/continuum`,
+  Apache front-stack vhost example under EXAMPLES).
 - Metrics + CI (Phase 2 remainder):
   - `/metrics` (authenticated, Prometheus text format): live gauges
     `continuum_tasks_open`, `continuum_agents_registered`,
@@ -70,6 +131,24 @@ introduces them (see AGENTS.md). Version parity is enforced between
   (`continuum_events`) with the calling `CONTINUUM_AGENT` identity.
 - Tool surface is registered in both the HTTP entry point and the stdio
   transport (`bin/mcp-stdio`, fixed `stdio` identity).
+
+### QA environment
+
+- `bin/smoke-test`: end-to-end wire test driving a live server —
+  health, initialize/discover, catalogs, task lifecycle, board
+  round-trip via tools and resources, subscription stream with a forked
+  listener, and the MRTR steal cycle (needs `--key2`). Ships in the
+  port and runs against any URL + agent key. Companion doc: docs/QA.md
+  (QA-environment setup, isolation rules, release QA checklist).
+
+### Documentation
+
+- README now covers the full MCP surface (resources, prompts,
+  completion, subscriptions, MRTR elicitation), adds a Terminology
+  section disambiguating Continuum board tasks from the MCP `tasks`
+  extension (long-running tool calls — not implemented), and gains
+  installation instructions (port package, source checkout, engine
+  provisioning, verification). `pkg-descr` refreshed to match.
 
 ### Fixed (during live verification)
 

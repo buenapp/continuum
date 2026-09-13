@@ -3,6 +3,7 @@
 namespace Continuum;
 
 use EnchiladaMCP\McpTool;
+use EnchiladaMCP\ElicitationRequired;
 use Continuum\Storage\ContinuumStorage;
 use Continuum\Bridge\MilestoneSyncAdapterInterface;
 use Continuum\Bridge\NullMilestoneSyncAdapter;
@@ -108,26 +109,52 @@ class TaskTools {
 
     /**
      * Claim a pending task. Atomic: a raced claim fails with a conflict
-     * error instead of double-claiming.
+     * error instead of double-claiming. A task already held by another
+     * agent (claimed, in_progress, blocked) can be stolen after
+     * confirmation.
      */
     #[McpTool(
         name: 'task_claim',
-        description: 'Atomically claim a pending task for your agent identity. Fails when the task is not pending or another agent holds it.'
+        description: 'Atomically claim a pending task for your agent identity. Fails when the task is not pending or another agent holds it. A held task can be stolen: leave `confirm` null to be prompted (MRTR elicitation), or pass the answer object directly, e.g. {action: "accept", content: {approve: true}}.'
     )]
-    public function task_claim(string $taskId): array {
+    public function task_claim(string $taskId, ?array $confirm = null): array {
         $task = $this->storage->loadTask($taskId)
             ?? throw new \RuntimeException("task {$taskId} not found");
+        $stealFrom = null;
         if (($task['status'] ?? 'pending') !== 'pending' || !empty($task['owner'])) {
-            throw new \RuntimeException("task {$taskId} is not claimable (status=" . ($task['status'] ?? '?')
-                . ', owner=' . ($task['owner'] ?? 'none') . ')');
+            $owner = $task['owner'] ?? null;
+            $status = $task['status'] ?? '?';
+            $stealable = $owner !== null
+                && $owner !== CONTINUUM_AGENT
+                && in_array($status, ['claimed', 'in_progress', 'blocked'], true);
+            if (!$stealable) {
+                throw new \RuntimeException("task {$taskId} is not claimable (status={$status}, owner=" . ($owner ?? 'none') . ')');
+            }
+            $answer = ElicitationRequired::answer($confirm);
+            if ($answer === null) {
+                throw new ElicitationRequired('confirm', "Task {$taskId} is held by {$owner} (status {$status}). Steal the claim?", [
+                    'type' => 'object',
+                    'properties' => ['approve' => ['type' => 'boolean', 'title' => 'Steal the claim']],
+                    'required' => ['approve'],
+                ]);
+            }
+            if (!$answer) {
+                throw new \RuntimeException("claim steal declined: task {$taskId} remains with {$owner}");
+            }
+            $stealFrom = $owner;
         }
         $task['status'] = 'claimed';
         $task['owner'] = CONTINUUM_AGENT;
         $task['claimed_at'] = gmdate('c');
         $task['updated_at'] = gmdate('c');
         $this->saveGuarded($taskId, $task, $task['_rev'] ?? null);
+        if ($stealFrom !== null) {
+            // Replace the prior owner's CLAIMED_BY edge
+            $this->storage->unclaim($taskId);
+        }
         $this->storage->mapAgentRelationship(CONTINUUM_AGENT, $taskId);
-        $this->storage->appendLog(CONTINUUM_AGENT, 'task_claim', ['task' => $taskId]);
+        $this->storage->appendLog(CONTINUUM_AGENT, $stealFrom ? 'task_steal' : 'task_claim',
+            $stealFrom ? ['task' => $taskId, 'from' => $stealFrom] : ['task' => $taskId]);
         $this->milestones->syncMilestone($taskId, 'started', [
             'agent' => CONTINUUM_AGENT, 'title' => $task['title'] ?? '', 'phorge_task_id' => $task['phorge_task_id'] ?? null,
         ]);

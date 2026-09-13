@@ -70,6 +70,11 @@ class ValKeyStore {
         return $result === 1;
     }
 
+    /** Release a lock regardless of owner. Returns true when one was held. */
+    public function forceReleaseLock(string $name): bool {
+        return (int)$this->client->command('DEL', self::NS . 'lock:' . $name) > 0;
+    }
+
     /** Inspect a lock: [owner, ttlSeconds] or null when free. */
     public function checkLock(string $name): ?array {
         $owner = $this->client->command('GET', self::NS . 'lock:' . $name);
@@ -78,8 +83,13 @@ class ValKeyStore {
         return ['owner' => $owner, 'ttl_ms' => is_int($ttl) ? $ttl : -1];
     }
 
+    /** Full pub/sub channel name for a logical signal channel (namespaced). */
+    public static function signalChannel(string $channel): string {
+        return self::NS . 'signal:' . $channel;
+    }
+
     public function publishSignal(string $channel, array $signal): void {
-        $this->client->command('PUBLISH', self::NS . 'signal:' . $channel, json_encode($signal));
+        $this->client->command('PUBLISH', self::signalChannel($channel), json_encode($signal));
     }
 
     /** Register agent presence + heartbeat timestamp. */

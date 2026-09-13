@@ -1,5 +1,5 @@
 name: "php84-continuum"
-version: "0.1.0"
+version: "0.2.0"
 origin: www/continuum
 comment: <<EOD
 Blackboard coordination MCP server for multi-agent orchestration

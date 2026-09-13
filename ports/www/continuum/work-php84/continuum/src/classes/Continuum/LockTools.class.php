@@ -3,6 +3,7 @@
 namespace Continuum;
 
 use EnchiladaMCP\McpTool;
+use EnchiladaMCP\ElicitationRequired;
 use Continuum\Storage\ContinuumStorage;
 
 /**
@@ -39,15 +40,34 @@ class LockTools {
     #[McpTool(
         name: 'advisory_lock_release',
         renamedFrom: 'lock_release',
-        description: 'Release a named advisory lock. Only the owner can release; a non-owner release fails.',
+        description: 'Release a named advisory lock. Only the owner can release; a non-owner release fails unless force-released after confirmation: leave `confirm` null to be prompted (MRTR elicitation), or pass the answer object directly. An expired or orphaned lock is a legitimate force-release target.',
         idempotentHint: true
     )]
-    public function advisory_lock_release(string $name): array {
-        $released = $this->storage->releaseLock($name, CONTINUUM_AGENT);
-        if ($released) {
+    public function advisory_lock_release(string $name, ?array $confirm = null): array {
+        if ($this->storage->releaseLock($name, CONTINUUM_AGENT)) {
             $this->storage->appendLog(CONTINUUM_AGENT, 'advisory_lock_release', ['lock' => $name]);
+            return ['name' => $name, 'released' => true];
         }
-        return ['name' => $name, 'released' => $released];
+        $held = $this->storage->checkLock($name);
+        if ($held !== null && $held['owner'] !== CONTINUUM_AGENT) {
+            $answer = ElicitationRequired::answer($confirm);
+            if ($answer === null) {
+                throw new ElicitationRequired('confirm', "Lock {$name} is held by {$held['owner']} ({$held['ttl_ms']}ms TTL left). Force-release it?", [
+                    'type' => 'object',
+                    'properties' => ['approve' => ['type' => 'boolean', 'title' => 'Force-release the lock']],
+                    'required' => ['approve'],
+                ]);
+            }
+            if (!$answer) {
+                return ['name' => $name, 'released' => false, 'owner' => $held['owner'], 'declined' => true];
+            }
+            $released = $this->storage->forceReleaseLock($name);
+            if ($released) {
+                $this->storage->appendLog(CONTINUUM_AGENT, 'advisory_lock_force_release', ['lock' => $name, 'from' => $held['owner']]);
+            }
+            return ['name' => $name, 'released' => $released, 'forced' => true];
+        }
+        return ['name' => $name, 'released' => false];
     }
 
     #[McpTool(
