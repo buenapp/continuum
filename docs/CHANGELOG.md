@@ -132,6 +132,15 @@ introduces them (see AGENTS.md). Version parity is enforced between
 - Tool surface is registered in both the HTTP entry point and the stdio
   transport (`bin/mcp-stdio`, fixed `stdio` identity).
 
+### Documentation
+
+- README now covers the full MCP surface (resources, prompts,
+  completion, subscriptions, MRTR elicitation), adds a Terminology
+  section disambiguating Continuum board tasks from the MCP `tasks`
+  extension (long-running tool calls — not implemented), and gains
+  installation instructions (port package, source checkout, engine
+  provisioning, verification). `pkg-descr` refreshed to match.
+
 ### Fixed (during live verification)
 
 - ArcadeDB has no `DELETE EDGE` statement and no link traversal in `WHERE`;
