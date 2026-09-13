@@ -49,7 +49,8 @@ class StatusToolsTest extends TestCase {
                 (object)['id' => 'E1', 'doc' => (object)['agent' => 'alice', 'type' => 'task_claim', 'ts' => '2026-09-13T01:00:00.000Z', 'data' => []]],
             ]]],
         ]);
-        $status = $this->tools($resp, $couch)->board_status();
+        $result = $this->tools($resp, $couch)->board_status();
+        $status = $result->getStructuredContent();
 
         $this->assertCount(1, $status['agents']);
         $this->assertSame('alice', $status['agents'][0]['agent']);
@@ -64,6 +65,12 @@ class StatusToolsTest extends TestCase {
         $this->assertSame(['proj' => 1, 'global' => 1], $status['boards']);
         $this->assertSame(['proj' => 1], $status['queues']);
         $this->assertSame('E1', $status['recent_events'][0]['id']);
+
+        // dual format: human-first text block with title-leading task lines
+        $text = $result->toArray()['content'][0]['text'];
+        $this->assertStringContainsString('## Open tasks (1)', $text);
+        $this->assertStringContainsString('- Fix [claimed, p1, @alice] (T-1)', $text);
+        $this->assertStringContainsString('- build — alice (30000ms TTL)', $text);
     }
 
     public function testEmptyBoardIsGraceful(): void {
@@ -76,7 +83,7 @@ class StatusToolsTest extends TestCase {
             ['code' => 200, 'body' => ['rows' => []]],
             ['code' => 200, 'body' => ['rows' => []]],
         ]);
-        $status = $this->tools($resp, $couch)->board_status();
+        $status = $this->tools($resp, $couch)->board_status()->getStructuredContent();
         $this->assertSame([], $status['agents']);
         $this->assertSame([], $status['open_tasks']);
         $this->assertSame([], $status['locks']);

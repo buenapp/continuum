@@ -18,12 +18,17 @@ class ServerToolsTest extends TestCase {
     }
 
     public function testServerInfoShape(): void {
-        $info = (new ServerTools())->server_info();
+        $result = (new ServerTools())->server_info();
+        $info = $result->getStructuredContent();
         $this->assertSame('Continuum', $info['name']);
         $this->assertSame(APPLICATION_VERSION, $info['version']);
         $this->assertArrayHasKey('engines', $info);
         $this->assertStringStartsWith('valkey@', $info['engines']['ephemeral']);
         $this->assertStringStartsWith('couchdb@', $info['engines']['durable']);
         $this->assertStringStartsWith('arcadedb@', $info['engines']['structural']);
+        // dual format: text block carries the same facts
+        $text = $result->toArray()['content'][0]['text'];
+        $this->assertStringContainsString(APPLICATION_VERSION, $text);
+        $this->assertStringContainsString('valkey@', $text);
     }
 }

@@ -48,16 +48,22 @@ class ContextToolsTest extends TestCase {
         ]);
         $resp = new FakeRespClient([['devin'], '1757729800']);
         $result = $this->tools($couch, $resp, $arcade)->context_pack('proj', 'T-9');
-        $pack = $result['pack'];
-        $this->assertStringContainsString('## Focus: T-9 — Fix parser', $pack);
+        $pack = $result->getStructuredContent()['pack'];
+        $this->assertStringContainsString('## Focus: Fix parser [in_progress] (T-9)', $pack);
         $this->assertStringContainsString('note(devin): near done', $pack);
-        $this->assertStringContainsString('depends on T-1: Parent [done]', $pack);
-        $this->assertStringContainsString('blocks T-10: Followup [pending]', $pack);
+        $this->assertStringContainsString('depends on: Parent [done] (T-1)', $pack);
+        $this->assertStringContainsString('blocks: Followup [pending] (T-10)', $pack);
         $this->assertStringContainsString('## Open tasks (2)', $pack); // done task excluded
+        // human-first task lines: title leads, coordination id trails
+        $this->assertStringContainsString('- Write tests [pending, p2] (T-2)', $pack);
+        $this->assertStringContainsString('- Fix parser [in_progress, p1] (T-9)', $pack);
         $this->assertStringContainsString('## Board: proj', $pack);
         $this->assertStringContainsString('roadmap', $pack);
         $this->assertStringContainsString('## Agents', $pack);
         $this->assertStringContainsString('devin', $pack);
+        // dual format: the text block IS the pack; structuredContent alongside
+        $this->assertSame($pack, $result->toArray()['content'][0]['text']);
+        $this->assertSame('proj', $result->getStructuredContent()['scope']);
     }
 
     public function testBudgetTrimsAndReportsOmissions(): void {
@@ -70,7 +76,7 @@ class ContextToolsTest extends TestCase {
             ['code' => 200, 'body' => ['rows' => []]],
             ['code' => 200, 'body' => ['rows' => $rows]],
         ]);
-        $result = $this->tools($couch)->context_pack(null, null, 100);
+        $result = $this->tools($couch)->context_pack(null, null, 100)->getStructuredContent();
         $this->assertLessThanOrEqual(100, $result['est_tokens']);
         $this->assertGreaterThan(0, $result['omitted']['board']);
     }

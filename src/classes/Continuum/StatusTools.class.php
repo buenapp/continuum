@@ -3,6 +3,7 @@
 namespace Continuum;
 
 use EnchiladaMCP\McpTool;
+use EnchiladaMCP\ToolResult;
 use Continuum\Storage\ContinuumStorage;
 
 /**
@@ -17,9 +18,10 @@ class StatusTools {
     #[McpTool(
         name: 'board_status',
         description: 'Whole-board snapshot: agents with last-seen, open tasks with owners, held advisory locks, board scopes, queue depths, recent events. The pane of glass.',
-        readOnlyHint: true
+        readOnlyHint: true,
+        outputSchema: self::STATUS_SCHEMA
     )]
-    public function board_status(): array {
+    public function board_status(): ToolResult {
         $now = time();
 
         $agents = [];
@@ -48,6 +50,7 @@ class StatusTools {
                 'scope' => $doc['scope'] ?? 'global',
                 'status' => $status,
                 'owner' => $doc['owner'] ?? null,
+                'phorge_task_id' => $doc['phorge_task_id'] ?? null,
                 'priority' => $doc['priority'] ?? 2,
             ];
         }
@@ -64,14 +67,90 @@ class StatusTools {
             $boards[$scope] = ($boards[$scope] ?? 0) + 1;
         }
 
-        return [
+        $data = [
             'now' => gmdate('c'),
             'agents' => $agents,
             'open_tasks' => $openTasks,
             'locks' => $this->storage->listLocks(),
             'boards' => $boards,
             'queues' => $queues,
-            'recent_events' => (new EventTools($this->storage))->coordination_event_log(null, 10)['events'],
+            'recent_events' => (new EventTools($this->storage))->coordination_event_log(null, 10)->getStructuredContent()['events'] ?? [],
         ];
+        return ToolResult::structured($this->renderText($data), $data);
     }
+
+    /** Compact markdown rendering of the snapshot for the text block. */
+    private function renderText(array $d): string {
+        $lines = ['# Board Status — ' . $d['now'], ''];
+        $lines[] = '## Agents (' . count($d['agents']) . ')';
+        foreach ($d['agents'] as $a) {
+            $line = '- ' . $a['agent'] . ($a['label'] ? " ({$a['label']})" : '');
+            $line .= $a['last_seen_s_ago'] === null ? ', no heartbeat' : ", last seen {$a['last_seen_s_ago']}s ago";
+            if ($a['working_on']) { $line .= ", working on: {$a['working_on']}"; }
+            $lines[] = $line;
+        }
+        if (!$d['agents']) { $lines[] = '(none)'; }
+        $lines[] = '';
+        $lines[] = '## Open tasks (' . count($d['open_tasks']) . ')';
+        foreach ($d['open_tasks'] as $t) { $lines[] = TaskTools::taskLine($t['task'], $t) . " [{$t['scope']}]"; }
+        if (!$d['open_tasks']) { $lines[] = '(none)'; }
+        $lines[] = '';
+        $lines[] = '## Locks (' . count($d['locks']) . ')';
+        foreach ($d['locks'] as $name => $lock) {
+            $lines[] = "- {$name} — {$lock['owner']} ({$lock['ttl_ms']}ms TTL)";
+        }
+        if (!$d['locks']) { $lines[] = '(none)'; }
+        $lines[] = '';
+        $lines[] = '## Boards';
+        foreach ($d['boards'] as $scope => $n) { $lines[] = "- {$scope}: {$n} keys"; }
+        if (!$d['boards']) { $lines[] = '(none)'; }
+        $lines[] = '';
+        $lines[] = '## Queues';
+        foreach ($d['queues'] as $scope => $n) { $lines[] = "- {$scope}: {$n} pending"; }
+        if (!$d['queues']) { $lines[] = '(none)'; }
+        $lines[] = '';
+        $lines[] = '## Recent events (' . count($d['recent_events']) . ')';
+        foreach ($d['recent_events'] as $e) {
+            $lines[] = '- ' . ($e['ts'] ?? '?') . ' ' . ($e['agent'] ?? '?') . ' ' . ($e['type'] ?? '?');
+        }
+        if (!$d['recent_events']) { $lines[] = '(none)'; }
+        return implode("\n", $lines);
+    }
+
+    private const STATUS_SCHEMA = [
+        'type' => 'object',
+        'properties' => [
+            'now' => ['type' => 'string'],
+            'agents' => ['type' => 'array', 'items' => [
+                'type' => 'object',
+                'properties' => [
+                    'agent' => ['type' => 'string'],
+                    'label' => ['type' => ['string', 'null']],
+                    'capabilities' => true,
+                    'working_on' => ['type' => ['string', 'null']],
+                    'last_seen_s_ago' => ['type' => ['integer', 'null']],
+                    'registered_at' => ['type' => ['string', 'null']],
+                ],
+                'required' => ['agent', 'label', 'capabilities', 'working_on', 'last_seen_s_ago', 'registered_at'],
+            ]],
+            'open_tasks' => ['type' => 'array', 'items' => [
+                'type' => 'object',
+                'properties' => [
+                    'task' => ['type' => 'string'],
+                    'title' => ['type' => 'string'],
+                    'scope' => ['type' => 'string'],
+                    'status' => ['type' => 'string'],
+                    'owner' => ['type' => ['string', 'null']],
+                    'phorge_task_id' => ['type' => ['string', 'null']],
+                    'priority' => ['type' => 'integer'],
+                ],
+                'required' => ['task', 'title', 'scope', 'status', 'owner', 'phorge_task_id', 'priority'],
+            ]],
+            'locks' => ['type' => 'object'],
+            'boards' => ['type' => 'object'],
+            'queues' => ['type' => 'object'],
+            'recent_events' => ['type' => 'array'],
+        ],
+        'required' => ['now', 'agents', 'open_tasks', 'locks', 'boards', 'queues', 'recent_events'],
+    ];
 }

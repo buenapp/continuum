@@ -26,7 +26,7 @@ class ContextResources {
         annotations: ['audience' => ['assistant'], 'priority' => 0.9]
     )]
     public function context_pack(string $scope): array {
-        $pack = (new ContextTools($this->storage))->context_pack(scope: $scope);
+        $pack = (new ContextTools($this->storage))->context_pack(scope: $scope)->getStructuredContent();
         return [
             'text' => $pack['pack'],
             'annotations' => ['audience' => ['assistant'], 'priority' => 0.9],

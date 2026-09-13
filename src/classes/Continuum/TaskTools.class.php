@@ -3,6 +3,7 @@
 namespace Continuum;
 
 use EnchiladaMCP\McpTool;
+use EnchiladaMCP\ToolResult;
 use EnchiladaMCP\ElicitationRequired;
 use Continuum\Storage\ContinuumStorage;
 use Continuum\Bridge\MilestoneSyncAdapterInterface;
@@ -93,9 +94,10 @@ class TaskTools {
     #[McpTool(
         name: 'task_list',
         description: 'List tasks with optional scope/status/owner filters. Statuses: ' . self::STATUSES_CSV,
-        readOnlyHint: true
+        readOnlyHint: true,
+        outputSchema: self::TASK_LIST_SCHEMA
     )]
-    public function task_list(?string $scope = null, ?string $status = null, ?string $owner = null, int $limit = 50): array {
+    public function task_list(?string $scope = null, ?string $status = null, ?string $owner = null, int $limit = 50): ToolResult {
         $tasks = [];
         foreach ($this->storage->listTaskDocs() as $id => $doc) {
             if ($scope !== null && ($doc['scope'] ?? 'global') !== $scope) { continue; }
@@ -104,7 +106,19 @@ class TaskTools {
             $tasks[] = $this->summarize($id, $doc);
         }
         usort($tasks, fn($a, $b) => strcmp($b['updated_at'] ?? '', $a['updated_at'] ?? ''));
-        return ['count' => min(count($tasks), $limit), 'total' => count($tasks), 'tasks' => array_slice($tasks, 0, $limit)];
+        $data = ['count' => min(count($tasks), $limit), 'total' => count($tasks), 'tasks' => array_slice($tasks, 0, $limit)];
+
+        $filters = [];
+        if ($scope !== null) { $filters[] = "scope={$scope}"; }
+        if ($status !== null) { $filters[] = "status={$status}"; }
+        if ($owner !== null) { $filters[] = "owner={$owner}"; }
+        $lines = ["# Tasks ({$data['count']} of {$data['total']})" . ($filters ? ' — ' . implode(', ', $filters) : '')];
+        if ($data['tasks'] === []) {
+            $lines[] = '(none)';
+        } else {
+            foreach ($data['tasks'] as $t) { $lines[] = self::taskLine($t['task'], $t); }
+        }
+        return ToolResult::structured(implode("\n", $lines), $data);
     }
 
     /**
@@ -257,6 +271,32 @@ class TaskTools {
 
     private const STATUSES_CSV = 'pending, claimed, in_progress, blocked, review, done, cancelled';
 
+    private const TASK_SUMMARY_SCHEMA = [
+        'type' => 'object',
+        'properties' => [
+            'task' => ['type' => 'string'],
+            'title' => ['type' => 'string'],
+            'scope' => ['type' => 'string'],
+            'status' => ['type' => 'string', 'enum' => ['pending', 'claimed', 'in_progress', 'blocked', 'review', 'done', 'cancelled']],
+            'owner' => ['type' => ['string', 'null']],
+            'assignee' => ['type' => ['string', 'null']],
+            'phorge_task_id' => ['type' => ['string', 'null']],
+            'priority' => ['type' => 'integer'],
+            'updated_at' => ['type' => ['string', 'null']],
+        ],
+        'required' => ['task', 'title', 'scope', 'status', 'owner', 'assignee', 'phorge_task_id', 'priority', 'updated_at'],
+    ];
+
+    private const TASK_LIST_SCHEMA = [
+        'type' => 'object',
+        'properties' => [
+            'count' => ['type' => 'integer'],
+            'total' => ['type' => 'integer'],
+            'tasks' => ['type' => 'array', 'items' => self::TASK_SUMMARY_SCHEMA],
+        ],
+        'required' => ['count', 'total', 'tasks'],
+    ];
+
     private function summarize(string $taskId, array $task): array {
         return [
             'task' => $taskId,
@@ -265,8 +305,22 @@ class TaskTools {
             'status' => $task['status'] ?? 'pending',
             'owner' => $task['owner'] ?? null,
             'assignee' => $task['assignee'] ?? null,
+            'phorge_task_id' => $task['phorge_task_id'] ?? null,
             'priority' => $task['priority'] ?? 2,
             'updated_at' => $task['updated_at'] ?? null,
         ];
+    }
+
+    /**
+     * Render one task line for human-facing text output. Title leads and
+     * the internal coordination id trails; the Phorge task id surfaces
+     * beside it when one is linked.
+     */
+    public static function taskLine(string $taskId, array $task): string {
+        $meta = [$task['status'] ?? '?', 'p' . ($task['priority'] ?? 2)];
+        if (($task['owner'] ?? null) !== null) { $meta[] = '@' . $task['owner']; }
+        $ref = $taskId;
+        if (!empty($task['phorge_task_id'])) { $ref .= ' · Phorge ' . $task['phorge_task_id']; }
+        return sprintf('- %s [%s] (%s)', $task['title'] ?? '', implode(', ', $meta), $ref);
     }
 }

@@ -3,6 +3,7 @@
 namespace Continuum;
 
 use EnchiladaMCP\McpTool;
+use EnchiladaMCP\ToolResult;
 
 /**
  * Continuum server meta-tools: identity, health, and surface discovery.
@@ -14,11 +15,13 @@ class ServerTools {
      */
     #[McpTool(
         name: 'server_info',
-        description: 'Return Continuum server identity, version, and engine configuration summary.'
+        description: 'Return Continuum server identity, version, and engine configuration summary.',
+        readOnlyHint: true,
+        outputSchema: self::INFO_SCHEMA
     )]
-    public function server_info(): array {
+    public function server_info(): ToolResult {
         global $SETTINGS;
-        return [
+        $data = [
             'name' => APPLICATION_NAME,
             'version' => APPLICATION_VERSION,
             'description' => APPLICATION_DESCRIPTION,
@@ -30,5 +33,33 @@ class ServerTools {
             ],
             'php' => phpversion(),
         ];
+        $text = $data['name'] . ' ' . $data['version'] . " — " . $data['description'] . "\n"
+            . 'engines: ephemeral=' . $data['engines']['ephemeral']
+            . ', durable=' . $data['engines']['durable']
+            . ', structural=' . $data['engines']['structural'] . "\n"
+            . 'php: ' . $data['php'] . "\n"
+            . 'website: ' . $data['website'];
+        return ToolResult::structured($text, $data);
     }
+
+    private const INFO_SCHEMA = [
+        'type' => 'object',
+        'properties' => [
+            'name' => ['type' => 'string'],
+            'version' => ['type' => 'string'],
+            'description' => ['type' => 'string'],
+            'website' => ['type' => 'string'],
+            'engines' => [
+                'type' => 'object',
+                'properties' => [
+                    'ephemeral' => ['type' => 'string'],
+                    'durable' => ['type' => 'string'],
+                    'structural' => ['type' => 'string'],
+                ],
+                'required' => ['ephemeral', 'durable', 'structural'],
+            ],
+            'php' => ['type' => 'string'],
+        ],
+        'required' => ['name', 'version', 'description', 'website', 'engines', 'php'],
+    ];
 }

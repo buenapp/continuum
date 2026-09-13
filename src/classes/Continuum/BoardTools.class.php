@@ -3,6 +3,7 @@
 namespace Continuum;
 
 use EnchiladaMCP\McpTool;
+use EnchiladaMCP\ToolResult;
 use Continuum\Storage\ContinuumStorage;
 
 /**
@@ -49,21 +50,27 @@ class BoardTools {
         name: 'blackboard_read',
         renamedFrom: 'bb_read',
         description: 'Read a blackboard entry from a scope (default: global). Errors when the key does not exist.',
-        readOnlyHint: true
+        readOnlyHint: true,
+        outputSchema: self::READ_SCHEMA
     )]
-    public function blackboard_read(string $key, ?string $scope = null): array {
+    public function blackboard_read(string $key, ?string $scope = null): ToolResult {
         $board = $this->scopeOf($scope);
         $entry = $this->storage->loadBoardEntry($board, $key);
         if ($entry === null) {
             throw new \RuntimeException("no board entry {$board}/{$key}");
         }
-        return [
+        $data = [
             'scope' => $board,
             'key' => $key,
             'value' => $entry['value'] ?? null,
             'updated_by' => $entry['updated_by'] ?? null,
             'updated_at' => $entry['updated_at'] ?? null,
         ];
+        $value = is_string($data['value']) ? $data['value'] : json_encode($data['value'], JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
+        $text = "# {$board}/{$key}\n"
+            . '_by ' . ($data['updated_by'] ?? '?') . ' at ' . ($data['updated_at'] ?? '?') . "_\n\n"
+            . (is_string($data['value']) ? $value : "```json\n{$value}\n```");
+        return ToolResult::structured($text, $data);
     }
 
     /**
@@ -73,12 +80,39 @@ class BoardTools {
         name: 'blackboard_keys',
         renamedFrom: 'bb_keys',
         description: 'List blackboard keys in a scope (default: global).',
-        readOnlyHint: true
+        readOnlyHint: true,
+        outputSchema: self::KEYS_SCHEMA
     )]
-    public function blackboard_keys(?string $scope = null): array {
+    public function blackboard_keys(?string $scope = null): ToolResult {
         $board = $this->scopeOf($scope);
-        return ['scope' => $board, 'keys' => $this->storage->listBoardKeys($board)];
+        $keys = $this->storage->listBoardKeys($board);
+        $data = ['scope' => $board, 'keys' => $keys];
+        $lines = ['# Keys in ' . $board . ' (' . count($keys) . ')'];
+        foreach ($keys as $k) { $lines[] = "- {$k}"; }
+        if ($keys === []) { $lines[] = '(none)'; }
+        return ToolResult::structured(implode("\n", $lines), $data);
     }
+
+    private const READ_SCHEMA = [
+        'type' => 'object',
+        'properties' => [
+            'scope' => ['type' => 'string'],
+            'key' => ['type' => 'string'],
+            'value' => true,
+            'updated_by' => ['type' => ['string', 'null']],
+            'updated_at' => ['type' => ['string', 'null']],
+        ],
+        'required' => ['scope', 'key', 'value', 'updated_by', 'updated_at'],
+    ];
+
+    private const KEYS_SCHEMA = [
+        'type' => 'object',
+        'properties' => [
+            'scope' => ['type' => 'string'],
+            'keys' => ['type' => 'array', 'items' => ['type' => 'string']],
+        ],
+        'required' => ['scope', 'keys'],
+    ];
 
     /**
      * Delete a board entry. Only the entry author or the agent owning the

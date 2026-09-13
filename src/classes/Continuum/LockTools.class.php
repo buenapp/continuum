@@ -3,6 +3,7 @@
 namespace Continuum;
 
 use EnchiladaMCP\McpTool;
+use EnchiladaMCP\ToolResult;
 use EnchiladaMCP\ElicitationRequired;
 use Continuum\Storage\ContinuumStorage;
 
@@ -74,19 +75,37 @@ class LockTools {
         name: 'advisory_lock_check',
         renamedFrom: 'lock_check',
         description: 'Inspect a named advisory lock: current owner and TTL, or free.',
-        readOnlyHint: true
+        readOnlyHint: true,
+        outputSchema: self::CHECK_SCHEMA
     )]
-    public function advisory_lock_check(string $name): array {
+    public function advisory_lock_check(string $name): ToolResult {
         $held = $this->storage->checkLock($name);
         if ($held === null) {
-            return ['name' => $name, 'free' => true];
+            return ToolResult::structured("Lock '{$name}' is free.", ['name' => $name, 'free' => true]);
         }
-        return [
+        $mine = $held['owner'] === CONTINUUM_AGENT;
+        $data = [
             'name' => $name,
             'free' => false,
             'owner' => $held['owner'],
             'ttl_ms' => $held['ttl_ms'],
-            'mine' => $held['owner'] === CONTINUUM_AGENT,
+            'mine' => $mine,
         ];
+        return ToolResult::structured(
+            "Lock '{$name}' is held by {$held['owner']} ({$held['ttl_ms']}ms TTL left)" . ($mine ? ' — held by you' : '') . '.',
+            $data
+        );
     }
+
+    private const CHECK_SCHEMA = [
+        'type' => 'object',
+        'properties' => [
+            'name' => ['type' => 'string'],
+            'free' => ['type' => 'boolean'],
+            'owner' => ['type' => 'string'],
+            'ttl_ms' => ['type' => 'integer'],
+            'mine' => ['type' => 'boolean'],
+        ],
+        'required' => ['name', 'free'],
+    ];
 }

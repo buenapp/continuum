@@ -25,6 +25,25 @@ class TaskToolsTest extends TestCase {
         foreach (['task_create', 'task_list', 'task_claim', 'task_update_status', 'task_handoff'] as $tool) {
             $this->assertTrue($registry->hasTool($tool), "missing tool {$tool}");
         }
+        // the read tool advertises its structured-output schema
+        $defs = array_column($registry->listTools(), null, 'name');
+        $this->assertNotEmpty($defs['task_list']['outputSchema'] ?? null);
+    }
+
+    public function testListReturnsDualFormatWithPhorgeId(): void {
+        $couch = new FakeCouch([
+            ['code' => 200, 'body' => ['rows' => [
+                (object)['id' => 'T-1', 'doc' => (object)['title' => 'Real BPE tokenizer', 'scope' => 'proj', 'status' => 'pending', 'priority' => 2, 'phorge_task_id' => 'T123', 'updated_at' => '2026-09-13T02:00:00Z']],
+            ]]],
+        ]);
+        $result = (new TaskTools($this->storage($couch)))->task_list('proj');
+        $data = $result->getStructuredContent();
+        $this->assertSame(1, $data['count']);
+        $this->assertSame('T123', $data['tasks'][0]['phorge_task_id']);
+        // text block: title leads, ids trail, Phorge id surfaced
+        $text = $result->toArray()['content'][0]['text'];
+        $this->assertStringContainsString('# Tasks (1 of 1) — scope=proj', $text);
+        $this->assertStringContainsString('- Real BPE tokenizer [pending, p2] (T-1 · Phorge T123)', $text);
     }
 
     public function testCreateWritesAllThreeEnginesAndLogs(): void {

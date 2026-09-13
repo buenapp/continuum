@@ -3,6 +3,16 @@
 Continuum follows semver. `UPGRADING.md` lists everything an operator must
 do when moving between versions; it ships with the code that requires it.
 
+## Unreleased
+
+No operator action: no settings keys, no engine schema changes, no
+deploy differences beyond `pkg upgrade`-equivalents once tagged.
+Clients/scripts that parse read-tool output out of
+`result.content[0].text` as JSON must switch to
+`result.structuredContent` — for the eight read tools the text block is
+now Markdown. Tools without a schema (mutations) still return
+JSON-encoded text exactly as before.
+
 ## 0.2.0
 
 `pkg upgrade` is sufficient: no settings keys, no engine schema changes;

@@ -45,6 +45,35 @@ class BoardToolsTest extends TestCase {
         (new BoardTools($this->storage($couch)))->blackboard_read('nope');
     }
 
+    public function testReadReturnsDualFormat(): void {
+        $couch = new FakeCouch([
+            ['code' => 200, 'body' => ['value' => ['n' => 1], 'updated_by' => 'alice', 'updated_at' => '2026-09-13T01:00:00Z']],
+        ]);
+        $result = (new BoardTools($this->storage($couch)))->blackboard_read('foo');
+        $data = $result->getStructuredContent();
+        $this->assertSame('global', $data['scope']);
+        $this->assertSame(['n' => 1], $data['value']);
+        $this->assertSame('alice', $data['updated_by']);
+        // text block renders the entry human-first, value as a json block
+        $text = $result->toArray()['content'][0]['text'];
+        $this->assertStringContainsString('# global/foo', $text);
+        $this->assertStringContainsString('by alice', $text);
+        $this->assertStringContainsString('"n": 1', $text);
+    }
+
+    public function testKeysListsScope(): void {
+        $couch = new FakeCouch([
+            ['code' => 200, 'body' => ['rows' => [
+                (object)['id' => 'global/a', 'doc' => null],
+                (object)['id' => 'global/b', 'doc' => null],
+                (object)['id' => 'ops/c', 'doc' => null],
+            ]]],
+        ]);
+        $result = (new BoardTools($this->storage($couch)))->blackboard_keys();
+        $this->assertSame(['a', 'b'], $result->getStructuredContent()['keys']);
+        $this->assertStringContainsString('- a', $result->toArray()['content'][0]['text']);
+    }
+
     public function testWriteRejectsReservedScopeBeforeAnyEngineCall(): void {
         // '_' is the CouchDB reserved id prefix; validation must fire first.
         $couch = new FakeCouch([]);

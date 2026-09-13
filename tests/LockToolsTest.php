@@ -59,11 +59,13 @@ class LockToolsTest extends TestCase {
     }
 
     public function testCheckFreeAndHeld(): void {
-        $free = $this->tools(new FakeRespClient([null]))->advisory_lock_check('x');
+        $free = $this->tools(new FakeRespClient([null]))->advisory_lock_check('x')->getStructuredContent();
         $this->assertTrue($free['free']);
-        $held = $this->tools(new FakeRespClient(['alice', 999]))->advisory_lock_check('x');
+        $heldResult = $this->tools(new FakeRespClient(['alice', 999]))->advisory_lock_check('x');
+        $held = $heldResult->getStructuredContent();
         $this->assertFalse($held['free']);
         $this->assertSame('alice', $held['owner']);
         $this->assertFalse($held['mine']);
+        $this->assertStringContainsString("held by alice (999ms TTL left)", $heldResult->toArray()['content'][0]['text']);
     }
 }

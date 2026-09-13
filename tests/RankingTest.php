@@ -71,14 +71,14 @@ class RankingTest extends TestCase {
         ]);
         // Without query: priority dominates, css polish first
         $plain = new \Continuum\ContextTools(new ContinuumStorage(new ValKeyStore(new FakeRespClient([])), $couch, new FakeArcade()));
-        $this->assertStringContainsString('css polish', explode("\n", $plain->context_pack(null, null, 2000)['pack'])[4] ?? '');
+        $this->assertStringContainsString('css polish', explode("\n", $plain->context_pack(null, null, 2000)->getStructuredContent()['pack'])[4] ?? '');
 
         // With query + ranker: login flow outranks css polish
         $ranked = new \Continuum\ContextTools(
             new ContinuumStorage(new ValKeyStore(new FakeRespClient([])), $couch->replay(), new FakeArcade()),
             new EmbeddingRanker($provider, 'test-model')
         );
-        $pack = $ranked->context_pack(null, null, 2000, 'auth')['pack'];
+        $pack = $ranked->context_pack(null, null, 2000, 'auth')->getStructuredContent()['pack'];
         $this->assertLessThan(strpos($pack, 'css polish'), strpos($pack, 'login flow'));
     }
 
@@ -96,6 +96,6 @@ class RankingTest extends TestCase {
             new ContinuumStorage(new ValKeyStore(new FakeRespClient([])), $couch, new FakeArcade()),
             $failing
         );
-        $this->assertStringContainsString('anything', $tools->context_pack(null, null, 2000, 'q')['pack']);
+        $this->assertStringContainsString('anything', $tools->context_pack(null, null, 2000, 'q')->getStructuredContent()['pack']);
     }
 }

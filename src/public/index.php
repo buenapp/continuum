@@ -104,7 +104,7 @@ if ($requestUri === '/metrics' && ($_SERVER['REQUEST_METHOD'] ?? '') === 'GET') 
 // Read-only human dashboard (authenticated like everything else).
 if ($requestUri === '/' && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
     header('Content-Type: text/html; charset=utf-8');
-    echo Dashboard::render((new StatusTools($storage))->board_status());
+    echo Dashboard::render((new StatusTools($storage))->board_status()->getStructuredContent());
     exit;
 }
 

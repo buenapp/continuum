@@ -4,6 +4,24 @@ All notable behavior changes ship in this file alongside the code that
 introduces them (see AGENTS.md). Version parity is enforced between
 `APPLICATION_VERSION`, the FreeBSD port's `DISTVERSION`, and the git tag.
 
+## Unreleased
+
+### Changed
+
+- Read tools now answer in the MCP 2025-06-18 dual format: a human-first
+  Markdown `content` text block plus matching `structuredContent`, with
+  each read tool (`server_info`, `blackboard_read`, `blackboard_keys`,
+  `task_list`, `advisory_lock_check`, `context_pack`, `board_status`,
+  `coordination_event_log`) advertising an `outputSchema` on
+  `tools/list`. `server_info` also gained the `readOnlyHint` annotation
+  it always qualified for.
+- Task presentation is human-first: `task_list`, `context_pack`, and
+  `board_status` render task lines with the title (and linked Phorge
+  task id) leading and the internal coordination id trailing
+  (`- Fix parser [in_progress, p1, @zed] (T-68C9770B)`). Task summaries
+  in tool output now include `phorge_task_id`. ID generation itself is
+  unchanged.
+
 ## 0.2.0 (2026-09-13)
 
 ### Added

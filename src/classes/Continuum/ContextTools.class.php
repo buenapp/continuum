@@ -3,6 +3,7 @@
 namespace Continuum;
 
 use EnchiladaMCP\McpTool;
+use EnchiladaMCP\ToolResult;
 use Continuum\Storage\ContinuumStorage;
 use Continuum\Bridge\RankingProviderInterface;
 
@@ -32,9 +33,10 @@ class ContextTools {
     #[McpTool(
         name: 'context_pack',
         description: 'Return a curated, ranked, token-budgeted brief of the blackboard: focused task (if any) with dependencies, open tasks in scope, recent board entries, and agent presence. Prefer this over raw scans at session start. `query` activates relevance ranking of tasks and board entries (semantic when embeddings are configured, lexical otherwise).',
-        readOnlyHint: true
+        readOnlyHint: true,
+        outputSchema: self::PACK_SCHEMA
     )]
-    public function context_pack(?string $scope = null, ?string $taskId = null, int $tokenBudget = 2000, ?string $query = null): array {
+    public function context_pack(?string $scope = null, ?string $taskId = null, int $tokenBudget = 2000, ?string $query = null): ToolResult {
         if ($tokenBudget < 100) { $tokenBudget = 100; }
         $budget = $tokenBudget * self::CHARS_PER_TOKEN;
         $used = 0;
@@ -57,7 +59,8 @@ class ContextTools {
             if ($task === null) {
                 throw new \RuntimeException("task {$taskId} not found");
             }
-            $emit("\n## Focus: {$taskId} — " . ($task['title'] ?? '') . ' [' . ($task['status'] ?? '?') . ']');
+            $emit("\n## Focus: " . ($task['title'] ?? '') . ' [' . ($task['status'] ?? '?') . "] ({$taskId})");
+            if (!empty($task['phorge_task_id'])) { $emit('- Phorge: ' . $task['phorge_task_id']); }
             if (!empty($task['notes'])) {
                 foreach (array_slice($task['notes'], -3) as $n) {
                     $emit('- note(' . ($n['agent'] ?? '?') . '): ' . ($n['text'] ?? ''));
@@ -69,11 +72,11 @@ class ContextTools {
             }
             foreach ($this->storage->getDependencies($taskId) as $dep) {
                 $dep = (array)$dep;
-                $emit('- depends on ' . ($dep['id'] ?? '?') . ': ' . ($dep['title'] ?? '') . ' [' . ($dep['status'] ?? '?') . ']');
+                $emit('- depends on: ' . ($dep['title'] ?? '') . ' [' . ($dep['status'] ?? '?') . '] (' . ($dep['id'] ?? '?') . ')');
             }
             foreach ($this->storage->getDependents($taskId) as $dep) {
                 $dep = (array)$dep;
-                $emit('- blocks ' . ($dep['id'] ?? '?') . ': ' . ($dep['title'] ?? '') . ' [' . ($dep['status'] ?? '?') . ']');
+                $emit('- blocks: ' . ($dep['title'] ?? '') . ' [' . ($dep['status'] ?? '?') . '] (' . ($dep['id'] ?? '?') . ')');
             }
         }
 
@@ -108,11 +111,9 @@ class ContextTools {
         };
 
         $taskItems = array_map(function ($doc) {
-            $owner = $doc['owner'] ?? null;
             return [
                 'text' => ($doc['title'] ?? '') . ' ' . ($doc['status'] ?? ''),
-                'line' => '- ' . $doc['_id'] . ' [p' . ($doc['priority'] ?? 2) . ', ' . ($doc['status'] ?? '?')
-                    . ($owner ? ', @' . $owner : '') . '] ' . ($doc['title'] ?? ''),
+                'line' => TaskTools::taskLine($doc['_id'], $doc),
             ];
         }, $tasks);
         $emit("\n## Open tasks (" . count($tasks) . ')');
@@ -150,12 +151,32 @@ class ContextTools {
             }
         }
 
-        return [
+        $pack = implode("\n", $sections);
+        return ToolResult::structured($pack, [
             'scope' => $scope ?? 'global',
             'task' => $taskId,
             'est_tokens' => (int)ceil($used / self::CHARS_PER_TOKEN),
             'omitted' => $omitted,
-            'pack' => implode("\n", $sections),
-        ];
+            'pack' => $pack,
+        ]);
     }
+
+    private const PACK_SCHEMA = [
+        'type' => 'object',
+        'properties' => [
+            'scope' => ['type' => 'string'],
+            'task' => ['type' => ['string', 'null']],
+            'est_tokens' => ['type' => 'integer'],
+            'omitted' => [
+                'type' => 'object',
+                'properties' => [
+                    'tasks' => ['type' => 'integer'],
+                    'board' => ['type' => 'integer'],
+                ],
+                'required' => ['tasks', 'board'],
+            ],
+            'pack' => ['type' => 'string'],
+        ],
+        'required' => ['scope', 'task', 'est_tokens', 'omitted', 'pack'],
+    ];
 }
