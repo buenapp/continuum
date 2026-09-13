@@ -369,9 +369,10 @@ class HttpSseTransport
 			if (!$ok) {
 				return $fail('Mcp-Name header is missing or malformed');
 			}
-			$expected = $bodyMethod === 'tools/call'
-				? ($request['params']['name'] ?? null)
-				: ($request['params']['uri'] ?? null);
+			// tools/call and prompts/get are name-addressed; resources/read is uri-addressed.
+			$expected = $bodyMethod === 'resources/read'
+				? ($request['params']['uri'] ?? null)
+				: ($request['params']['name'] ?? null);
 			if (!is_string($expected) || $nameValue !== $expected) {
 				return $fail("Mcp-Name header value '{$nameValue}' does not match body value '" . (is_string($expected) ? $expected : '(missing)') . "'");
 			}

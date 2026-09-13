@@ -22,11 +22,11 @@ Package: `php84-continuum` from the estate pkg repo. Fresh installs:
 
 ## Compatibility notes
 
-- **MCP resources (unreleased)**: purely additive. The server now
-  advertises the `resources` capability and answers `resources/list`,
-  `resources/templates/list`, and `resources/read`. No settings keys,
-  no engine schema changes, and the tool surface is unchanged — clients
-  that ignore resources are unaffected.
+- **MCP resources, prompts, completion (unreleased)**: purely additive.
+  The server now advertises the `resources`, `prompts`, and
+  `completions` capabilities and answers the corresponding method
+  families. No settings keys, no engine schema changes, and the tool
+  surface is unchanged — clients that ignore them are unaffected.
 - **Subscriptions (unreleased)**: `subscriptions/listen` answers only on
   the 2026-07-28 protocol revision; legacy clients see -32601 and are
   unaffected. Each open listen stream holds one PHP worker for its

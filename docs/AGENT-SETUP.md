@@ -89,7 +89,10 @@ npx @modelcontextprotocol/inspector php bin/mcp-stdio
 
 ## Session protocol (what agents should do)
 
-Continuum is the coordination surface, not a chat log. Per session:
+Continuum is the coordination surface, not a chat log. Per session
+(the same protocol is also exposed as selectable MCP prompt templates:
+`session_bootstrap`, `claim_and_serve`, `handoff`, `milestone_sync` —
+with argument autocompletion for scopes, task ids, and board keys):
 
 1. **Register + heartbeat**: `agent_register` once (capabilities,
    label), then `agent_heartbeat(working_on=...)` whenever focus changes.

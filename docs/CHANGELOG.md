@@ -8,6 +8,16 @@ introduces them (see AGENTS.md). Version parity is enforced between
 
 ### Added
 
+- MCP prompts + completion: the coordination contract is now
+  discoverable as prompt templates (`session_bootstrap`,
+  `claim_and_serve`, `handoff`, `milestone_sync`) via `prompts/list`
+  and `prompts/get`; the bootstrap prompt links the context-pack
+  resource for the requested scope. `completion/complete` suggests live
+  values — scopes, task ids (open first), board keys (scope-aware via
+  completion context), agent ids, lock names — for both prompt
+  arguments and resource template placeholders. Unknown prompts/refs
+  answer -32602; capabilities (`prompts`, `completions`) advertised on
+  both entry points.
 - Subscribe-and-Notify (MCP 2026-07-28): `subscriptions/listen` on the
   `/mcp` endpoint opens a long-lived SSE stream of
   `notifications/resources/updated` for the subscribed resource URIs —

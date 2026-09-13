@@ -99,7 +99,7 @@ class McpServer
 	private string $negotiatedProtocolVersion = self::LEGACY_PROTOCOL_VERSION;
 
 	/** @var string[] Result methods that carry ttlMs/cacheScope on modern requests. */
-	private const CACHEABLE_LIST_METHODS = ['server/discover', 'tools/list', 'resources/list', 'resources/templates/list', 'resources/read'];
+	private const CACHEABLE_LIST_METHODS = ['server/discover', 'tools/list', 'resources/list', 'resources/templates/list', 'resources/read', 'prompts/list'];
 
 	/** @var int ttlMs hint for list/discover results on modern requests (1 hour; the tool and resource sets change only with configuration). */
 	private int $listCacheTtlMs = 3600000;
@@ -571,6 +571,9 @@ class McpServer
 				'resources/list' => $this->handleResourcesList($params),
 				'resources/templates/list' => $this->handleResourceTemplatesList($params),
 				'resources/read' => $this->handleResourcesRead($params),
+				'prompts/list' => $this->handlePromptsList($params),
+				'prompts/get' => $this->handlePromptsGet($params),
+				'completion/complete' => $this->handleCompletionComplete($params),
 				'ping' => new \stdClass(),
 				default => throw new \Exception("Method not found: {$method}", -32601),
 			};
@@ -719,6 +722,13 @@ class McpServer
 		];
 		if ($this->registry->hasResources()) {
 			$capabilities['resources'] = new \stdClass();
+		}
+		// Never listChanged: the prompt and tool sets are configuration-static.
+		if ($this->registry->hasPrompts()) {
+			$capabilities['prompts'] = new \stdClass();
+		}
+		if ($this->registry->hasCompletions()) {
+			$capabilities['completions'] = new \stdClass();
 		}
 		return $capabilities;
 	}
@@ -898,6 +908,72 @@ class McpServer
 			$ack['resourceSubscriptions'] = array_values(array_unique($uris));
 		}
 		return $ack;
+	}
+
+	/**
+	 * Handle prompts/list request.
+	 *
+	 * @param  array<string,mixed> $params Request parameters
+	 * @return array<string,mixed>         Prompts list response
+	 */
+	private function handlePromptsList(array $params): array
+	{
+		return ['prompts' => $this->registry->listPrompts()];
+	}
+
+	/**
+	 * Handle prompts/get request: resolve a prompt's messages. Unknown
+	 * names and missing required arguments are -32602 per the spec's error
+	 * guidance.
+	 *
+	 * @param  array<string,mixed> $params Request parameters (name, arguments?)
+	 * @return array<string,mixed>         {description, messages}
+	 */
+	private function handlePromptsGet(array $params): array
+	{
+		$name = (string)($params['name'] ?? '');
+		$arguments = (array)($params['arguments'] ?? []);
+		try {
+			return $this->registry->getPrompt($name, $arguments);
+		} catch (\InvalidArgumentException $e) {
+			throw new \InvalidArgumentException($e->getMessage(), -32602, $e);
+		}
+	}
+
+	/**
+	 * Handle completion/complete: suggestions for one prompt or resource
+	 * template argument. Unknown references are -32602; a known reference
+	 * without a provider for that argument returns empty suggestions.
+	 *
+	 * @param  array<string,mixed> $params ref / argument / context?
+	 * @return array<string,mixed>         {completion: {values, total, hasMore}}
+	 */
+	private function handleCompletionComplete(array $params): array
+	{
+		$ref = $params['ref'] ?? null;
+		$argument = $params['argument'] ?? null;
+		if (!is_array($ref) || !is_array($argument)) {
+			throw new \InvalidArgumentException('completion/complete requires ref and argument objects', -32602);
+		}
+		$name = (string)($argument['name'] ?? '');
+		$value = (string)($argument['value'] ?? '');
+		$context = (array)($params['context']['arguments'] ?? []);
+		try {
+			$result = $this->registry->complete($ref, $name, $value, $context);
+		} catch (\InvalidArgumentException $e) {
+			throw new \InvalidArgumentException($e->getMessage(), -32602, $e);
+		}
+
+		if (is_array($result) && array_is_list($result)) {
+			$result = ['values' => $result];
+		}
+		$values = is_array($result) ? array_slice(array_values((array)($result['values'] ?? [])), 0, 100) : [];
+		$total = is_array($result) && isset($result['total']) ? (int)$result['total'] : count($values);
+		return ['completion' => [
+			'values' => $values,
+			'total' => $total,
+			'hasMore' => is_array($result) ? (bool)($result['hasMore'] ?? false) : false,
+		]];
 	}
 
 	/**

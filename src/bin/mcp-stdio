@@ -32,6 +32,7 @@ use Continuum\AgentResources;
 use Continuum\LockResources;
 use Continuum\EventResources;
 use Continuum\ContextResources;
+use Continuum\CoordinationPrompts;
 use Continuum\Storage\ContinuumStorage;
 use Continuum\Bridge\HeliofaneMcpBridge;
 
@@ -81,6 +82,7 @@ $server->register(new AgentResources($storage));
 $server->register(new LockResources($storage));
 $server->register(new EventResources($storage));
 $server->register(new ContextResources($storage));
+$server->register(new CoordinationPrompts($storage));
 
 // Run via StdioTransport: primitives in (handler, progress emitter),
 // notifier back out. The loop is strict opt-in — with Comal not

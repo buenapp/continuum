@@ -31,6 +31,7 @@ use Continuum\AgentResources;
 use Continuum\LockResources;
 use Continuum\EventResources;
 use Continuum\ContextResources;
+use Continuum\CoordinationPrompts;
 use Continuum\SubscriptionFeed;
 use Continuum\Dashboard;
 use Continuum\Storage\ContinuumStorage;
@@ -157,6 +158,10 @@ $server->register(new ContextResources($storage));
 // Subscribe-and-Notify (2026-07-28): resource change streams only —
 // list-changed notifications are never emitted (the surface is static).
 $server->setSupportedSubscriptions(['resourceSubscriptions']);
+
+// Prompt templates (the working contract, versioned with the release)
+// plus argument completion providers.
+$server->register(new CoordinationPrompts($storage));
 
 // Request metrics: per-tool call counter + duration, flushed to ValKey
 // at end of request (flush failures never propagate).
