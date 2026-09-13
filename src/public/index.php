@@ -31,6 +31,10 @@ use Continuum\Bridge\NullMilestoneSyncAdapter;
 use Continuum\Bridge\HeliofaneMcpBridge;
 use Continuum\Bridge\EmbeddingProvider;
 use Continuum\Bridge\EmbeddingRanker;
+use Continuum\Storage\MetricsStore;
+use Continuum\Storage\MetricsCollector;
+use Continuum\Storage\PrometheusExporter;
+use Continuum\Storage\RespClient;
 
 // Health probe (unauthenticated; no sensitive data)
 $requestUri = parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH);
@@ -78,6 +82,18 @@ $server->setTitle(APPLICATION_NAME)
 $storage = ContinuumStorage::fromSettings($SETTINGS);
 $storage->ensureSchema();
 
+$metricsStore = new MetricsStore(new RespClient(
+    $SETTINGS->getString('valkey', 'host', '127.0.0.1'),
+    $SETTINGS->getInt('valkey', 'port', 6379)
+));
+
+// Prometheus scrape endpoint (authenticated; no secrets in the payload).
+if ($requestUri === '/metrics' && ($_SERVER['REQUEST_METHOD'] ?? '') === 'GET') {
+    header('Content-Type: text/plain; version=0.0.4; charset=utf-8');
+    echo (new PrometheusExporter($storage, $metricsStore))->render();
+    exit;
+}
+
 // Read-only human dashboard (authenticated like everything else).
 if ($requestUri === '/' && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
     header('Content-Type: text/html; charset=utf-8');
@@ -124,11 +140,25 @@ $server->register(new EventTools($storage));
 $server->register(new StatusTools($storage));
 $server->register(new MemoryTools($storage, $heliofaneBridge));
 
+// Request metrics: per-tool call counter + duration, flushed to ValKey
+// at end of request (flush failures never propagate).
+$requestStart = MetricsCollector::startTimer();
+$rpcBody = json_decode((string)file_get_contents('php://input'), true);
+MetricsCollector::increment('mcp_requests_total');
+if (($rpcBody['method'] ?? null) === 'tools/call' && isset($rpcBody['params']['name'])) {
+    MetricsCollector::increment('tool_calls_total', ['tool' => (string)$rpcBody['params']['name']]);
+}
+
 $transport = new HttpSseTransport(
     $server->handleRequest(...),
     $server->modernVersions(),
     $server->legacyVersions(),
 );
+
+register_shutdown_function(function () use ($requestStart, $metricsStore) {
+    MetricsCollector::observeDuration('http_request_duration', $requestStart);
+    MetricsCollector::flush($metricsStore);
+});
 
 // DNS-rebinding defense: browser-originated requests are refused unless
 // their Origin is allow-listed here. Non-browser MCP clients are unaffected.

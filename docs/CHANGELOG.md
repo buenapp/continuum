@@ -8,6 +8,15 @@ introduces them (see AGENTS.md). Version parity is enforced between
 
 ### Added
 
+- Metrics + CI (Phase 2 remainder):
+  - `/metrics` (authenticated, Prometheus text format): live gauges
+    `continuum_tasks_open`, `continuum_agents_registered`,
+    `continuum_locks_held`, `continuum_info`; persisted counters
+    (`continuum_tool_calls_total{tool=...}`, `continuum_mcp_requests_total`)
+    and `continuum_http_request_duration` histogram in ValKey.
+  - Per-tool counter + request duration instrumented at the transport
+    edge, flushed after the request; metrics failures never propagate.
+  - Forgejo Actions workflow runs `phpunit` on push.
 - Phase 6 (bridges):
   - Milestone sync adapter seam (`Continuum\Bridge\MilestoneSyncAdapterInterface`)
     + `NullMilestoneSyncAdapter`. `task_claim` fires `started`;
@@ -17,8 +26,10 @@ introduces them (see AGENTS.md). Version parity is enforced between
     `[milestones] adapter` accepts only `none`.
   - `promote_to_memory` — distilled facts promoted to long-term memory
     (Heliofane) at handoff/completion via `HeliofaneMcpBridge`
-    (initialize/SSE handshake, stateless-OK, read of `note` then `remember`
-    fallback). Needs `[heliofane]` config; errors cleanly when unset.
+    (initialize/SSE handshake, stateless-OK, `note` then `remember`
+    fallback; Heliofane's textual `**ERROR**: ...` responses count as
+    failures). Needs `[heliofane]` config; errors cleanly when unset.
+    Write path live-verified against a local QA Heliofane instance.
   - `context_pack` gains `query` param + ranking seam: `LexicalRanker`
     default; `EmbeddingRanker` when `[embeddings] url` is set
     (OpenAI-compatible endpoint, cosine re-rank of tasks/board entries).

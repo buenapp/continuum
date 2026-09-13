@@ -40,6 +40,9 @@ class HeliofaneMcpBridge {
             $result = $rpc['result'] ?? [];
             $isError = (bool)($result['isError'] ?? false);
             $text = $result['content'][0]['text'] ?? '';
+            // Heliofane reports some tool errors as result text without an
+            // isError flag ("**ERROR**: ...").
+            if (!$isError && str_starts_with(ltrim($text), '**ERROR**')) { $isError = true; }
             return [
                 'ok' => !$isError,
                 'result' => $result,
