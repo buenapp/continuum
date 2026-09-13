@@ -1,0 +1,42 @@
+; Continuum MCP Server configuration
+; Copy to settings.ini and adjust values
+
+; Per-agent API keys. Presented as "X-Api-Key: <key>" or
+; "Authorization: Bearer <key>". The array key is the agent identity used
+; for capability scoping and the audit event log.
+[agents]
+;devin    = "replace-with-long-random-key"
+;windsurf = "replace-with-long-random-key"
+
+[server]
+debug = false
+; Browser Origin allow-list (MCP DNS-rebinding defense). Non-browser MCP
+; clients (Devin, Windsurf, mcp-bridge) send no Origin and are unaffected.
+;allowed_origins = https://example.com
+
+; Ephemeral engine: coordination, locks, queues, signals (ValKey, RESP)
+[valkey]
+;host = 127.0.0.1
+;port = 6379
+
+; Durable engine: plans, resume prompts, workflow snapshots, event log (CouchDB)
+[couchdb]
+;host = 127.0.0.1
+;port = 5984
+;user = admin
+;pass = ""
+;database_prefix = continuum_
+
+; Structural engine: task dependency graph, agent relationships (ArcadeDB)
+[arcadedb]
+;host = 127.0.0.1
+;port = 2480
+;user = root
+;pass = ""
+;database = continuum
+
+; Optional semantic ranking of board entries / context packs (Phase 3)
+[embeddings]
+;url = ""
+;model = all-MiniLM-L6-v2
+;api_key = ""

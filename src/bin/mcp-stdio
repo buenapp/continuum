@@ -1,0 +1,46 @@
+#!/usr/bin/env php
+<?php
+/**
+ * Continuum - stdio Transport Wrapper
+ *
+ * Allows the MCP server to be tested with the MCP Inspector
+ * by providing stdin/stdout JSON-RPC transport.
+ *
+ * Usage:
+ *   npx @modelcontextprotocol/inspector php bin/mcp-stdio
+ */
+
+chdir(__DIR__ . '/..');
+require_once 'includes/bootstrap.inc.php';
+
+use EnchiladaMCP\McpServer;
+use Enchilada\Tortilla\ComalEventLoop;
+use Enchilada\Tortilla\StdioTransport;
+use Continuum\ServerTools;
+
+$server = new McpServer(APPLICATION_NAME, APPLICATION_VERSION);
+
+$instructionsFile = APPLICATION_CONFDIR . 'instructions.txt';
+if (file_exists($instructionsFile)) {
+    $server->setInstructions(file_get_contents($instructionsFile));
+}
+
+$server->setTitle(APPLICATION_NAME)
+    ->setDescription(APPLICATION_DESCRIPTION)
+    ->setWebsiteUrl(APPLICATION_WEBSITE);
+
+$server->register(new ServerTools());
+
+// Run via StdioTransport: primitives in (handler, progress emitter),
+// notifier back out. The loop is strict opt-in — with Comal not
+// vendored here, ComalEventLoop::create() is null and the transport
+// runs blocking I/O.
+$transport = new StdioTransport($server->handleRequest(...), $server->tick(...));
+$transport->setLogger(function (string $message) {
+    fwrite(STDERR, "[MCP] " . $message . "\n");
+});
+if (($loop = ComalEventLoop::create()) !== null) {
+    $transport->setLoop($loop);
+}
+$server->setNotifier($transport->sendNotification(...));
+$transport->run();
