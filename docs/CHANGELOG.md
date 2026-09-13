@@ -9,7 +9,8 @@ introduces them (see AGENTS.md). Version parity is enforced between
 ### Added
 
 - Phase 4 tool wave (blackboard core):
-  - `bb_write` / `bb_read` / `bb_keys` / `bb_delete` — scoped board entries
+  - `blackboard_write` / `blackboard_read` / `blackboard_keys` /
+    `blackboard_delete` — scoped board entries
     with per-entry attribution; deletes restricted to the author or the
     agent owning the scope; scope/key segments are validated (CouchDB
     reserves `_`-prefixed ids, `/` delimits scope from key).

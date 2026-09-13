@@ -25,10 +25,11 @@ class BoardTools {
      * Write a board entry.
      */
     #[McpTool(
-        name: 'bb_write',
+        name: 'blackboard_write',
+        renamedFrom: 'bb_write',
         description: 'Write a blackboard entry under a scope (default: global). Value may be any JSON value. Existing keys are overwritten with MVCC protection.'
     )]
-    public function bb_write(string $key, mixed $value, ?string $scope = null): array {
+    public function blackboard_write(string $key, mixed $value, ?string $scope = null): array {
         $board = $this->scopeOf($scope);
         $existing = $this->storage->loadBoardEntry($board, $key);
         $entry = [
@@ -37,7 +38,7 @@ class BoardTools {
             'updated_at' => gmdate('c'),
         ];
         $wrote = $this->storage->saveBoardEntry($board, $key, $entry, $existing['_rev'] ?? null);
-        $this->storage->appendLog(CONTINUUM_AGENT, 'bb_write', ['scope' => $board, 'key' => $key]);
+        $this->storage->appendLog(CONTINUUM_AGENT, 'blackboard_write', ['scope' => $board, 'key' => $key]);
         return ['scope' => $board, 'key' => $key, 'rev' => $wrote['rev'], 'updated_by' => CONTINUUM_AGENT];
     }
 
@@ -45,11 +46,12 @@ class BoardTools {
      * Read a board entry.
      */
     #[McpTool(
-        name: 'bb_read',
+        name: 'blackboard_read',
+        renamedFrom: 'bb_read',
         description: 'Read a blackboard entry from a scope (default: global). Errors when the key does not exist.',
         readOnlyHint: true
     )]
-    public function bb_read(string $key, ?string $scope = null): array {
+    public function blackboard_read(string $key, ?string $scope = null): array {
         $board = $this->scopeOf($scope);
         $entry = $this->storage->loadBoardEntry($board, $key);
         if ($entry === null) {
@@ -68,11 +70,12 @@ class BoardTools {
      * List the keys present in a scope.
      */
     #[McpTool(
-        name: 'bb_keys',
+        name: 'blackboard_keys',
+        renamedFrom: 'bb_keys',
         description: 'List blackboard keys in a scope (default: global).',
         readOnlyHint: true
     )]
-    public function bb_keys(?string $scope = null): array {
+    public function blackboard_keys(?string $scope = null): array {
         $board = $this->scopeOf($scope);
         return ['scope' => $board, 'keys' => $this->storage->listBoardKeys($board)];
     }
@@ -82,12 +85,13 @@ class BoardTools {
      * scope may delete.
      */
     #[McpTool(
-        name: 'bb_delete',
+        name: 'blackboard_delete',
+        renamedFrom: 'bb_delete',
         description: 'Delete a blackboard entry. Restricted to the entry author or the agent that owns the scope.',
         destructiveHint: true,
         idempotentHint: false
     )]
-    public function bb_delete(string $key, ?string $scope = null): array {
+    public function blackboard_delete(string $key, ?string $scope = null): array {
         $board = $this->scopeOf($scope);
         $entry = $this->storage->loadBoardEntry($board, $key);
         if ($entry === null) {
@@ -98,7 +102,7 @@ class BoardTools {
             throw new \RuntimeException("not permitted: entry {$board}/{$key} is owned by " . ($author ?? 'unknown'));
         }
         $this->storage->deleteBoardEntry($board, $key, $entry['_rev']);
-        $this->storage->appendLog(CONTINUUM_AGENT, 'bb_delete', ['scope' => $board, 'key' => $key]);
+        $this->storage->appendLog(CONTINUUM_AGENT, 'blackboard_delete', ['scope' => $board, 'key' => $key]);
         return ['scope' => $board, 'key' => $key, 'deleted' => true];
     }
 }

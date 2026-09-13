@@ -17,7 +17,7 @@ class BoardToolsTest extends TestCase {
     public function testRegistersAllTools(): void {
         $registry = new ToolRegistry();
         $registry->register(new BoardTools($this->storage(new FakeCouch([]))));
-        foreach (['bb_write', 'bb_read', 'bb_keys', 'bb_delete'] as $tool) {
+        foreach (['blackboard_write', 'blackboard_read', 'blackboard_keys', 'blackboard_delete'] as $tool) {
             $this->assertTrue($registry->hasTool($tool), "missing tool {$tool}");
         }
     }
@@ -29,27 +29,27 @@ class BoardToolsTest extends TestCase {
             ['code' => 200, 'body' => ['uuids' => ['ev1']]],                        // _uuids
             ['code' => 201, 'body' => ['id' => 'ev1', 'rev' => '1-b']],             // PUT event
         ]);
-        $result = (new BoardTools($this->storage($couch)))->bb_write('foo', ['n' => 1]);
+        $result = (new BoardTools($this->storage($couch)))->blackboard_write('foo', ['n' => 1]);
         $this->assertSame('global', $result['scope']);
         $this->assertSame('test-agent', $result['updated_by']);
         $this->assertSame('1-a', $result['rev']);
         // event log write went to continuum_events with the agent identity
         $this->assertSame('continuum_events/' . 'ev1', $couch->calls[3]['path']);
         $this->assertSame('test-agent', $couch->calls[3]['data']['agent']);
-        $this->assertSame('bb_write', $couch->calls[3]['data']['type']);
+        $this->assertSame('blackboard_write', $couch->calls[3]['data']['type']);
     }
 
     public function testReadMissingThrows(): void {
         $couch = new FakeCouch([['code' => 404, 'body' => null]]);
         $this->expectException(\RuntimeException::class);
-        (new BoardTools($this->storage($couch)))->bb_read('nope');
+        (new BoardTools($this->storage($couch)))->blackboard_read('nope');
     }
 
     public function testWriteRejectsReservedScopeBeforeAnyEngineCall(): void {
         // '_' is the CouchDB reserved id prefix; validation must fire first.
         $couch = new FakeCouch([]);
         $this->expectException(\InvalidArgumentException::class);
-        (new BoardTools($this->storage($couch)))->bb_write('foo', 'x', '_live');
+        (new BoardTools($this->storage($couch)))->blackboard_write('foo', 'x', '_live');
     }
 
     public function testDeleteRejectsForeignEntry(): void {
@@ -58,7 +58,7 @@ class BoardToolsTest extends TestCase {
         ]);
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('not permitted');
-        (new BoardTools($this->storage($couch)))->bb_delete('foo');
+        (new BoardTools($this->storage($couch)))->blackboard_delete('foo');
     }
 
     public function testDeleteAllowedInOwnScope(): void {
@@ -69,7 +69,7 @@ class BoardToolsTest extends TestCase {
             ['code' => 200, 'body' => ['uuids' => ['ev2']]],
             ['code' => 201, 'body' => ['id' => 'ev2', 'rev' => '1-x']],
         ]);
-        $result = (new BoardTools($this->storage($couch)))->bb_delete('foo', $hiddenagent);
+        $result = (new BoardTools($this->storage($couch)))->blackboard_delete('foo', $hiddenagent);
         $this->assertTrue($result['deleted']);
         $this->assertStringStartsWith('DELETE', $couch->calls[1]['verb']);
     }
