@@ -31,6 +31,7 @@ use Continuum\AgentResources;
 use Continuum\LockResources;
 use Continuum\EventResources;
 use Continuum\ContextResources;
+use Continuum\SubscriptionFeed;
 use Continuum\Dashboard;
 use Continuum\Storage\ContinuumStorage;
 use Continuum\Bridge\NullMilestoneSyncAdapter;
@@ -88,10 +89,9 @@ $server->setTitle(APPLICATION_NAME)
 $storage = ContinuumStorage::fromSettings($SETTINGS);
 $storage->ensureSchema();
 
-$metricsStore = new MetricsStore(new RespClient(
-    $SETTINGS->getString('valkey', 'host', '127.0.0.1'),
-    $SETTINGS->getInt('valkey', 'port', 6379)
-));
+$valkeyHost = $SETTINGS->getString('valkey', 'host', '127.0.0.1');
+$valkeyPort = $SETTINGS->getInt('valkey', 'port', 6379);
+$metricsStore = new MetricsStore(new RespClient($valkeyHost, $valkeyPort));
 
 // Prometheus scrape endpoint (authenticated; no secrets in the payload).
 if ($requestUri === '/metrics' && ($_SERVER['REQUEST_METHOD'] ?? '') === 'GET') {
@@ -154,6 +154,10 @@ $server->register(new LockResources($storage));
 $server->register(new EventResources($storage));
 $server->register(new ContextResources($storage));
 
+// Subscribe-and-Notify (2026-07-28): resource change streams only —
+// list-changed notifications are never emitted (the surface is static).
+$server->setSupportedSubscriptions(['resourceSubscriptions']);
+
 // Request metrics: per-tool call counter + duration, flushed to ValKey
 // at end of request (flush failures never propagate).
 $requestStart = MetricsCollector::startTimer();
@@ -167,6 +171,12 @@ $transport = new HttpSseTransport(
     $server->handleRequest(...),
     $server->modernVersions(),
     $server->legacyVersions(),
+);
+
+// The subscription feed runs on its own ValKey connection (pub/sub
+// blocks the socket); change signals are published by ContinuumStorage.
+$transport->setSubscriptionFeed(
+    fn(array $filter) => (new SubscriptionFeed($valkeyHost, $valkeyPort))->stream($filter)
 );
 
 register_shutdown_function(function () use ($requestStart, $metricsStore) {

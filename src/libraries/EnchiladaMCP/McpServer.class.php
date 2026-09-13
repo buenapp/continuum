@@ -63,6 +63,16 @@ class McpServer
 	public const ERR_HEADER_MISMATCH = -32020;
 
 	/**
+	 * Response-array key marking a `subscriptions/listen` handshake
+	 * (2026-07-28) instead of a normal result. Value shape:
+	 * ['subscriptionId' => <request id>, 'notifications' => <honored
+	 * filter>]. Transports that understand the Subscribe-and-Notify
+	 * pattern own the response stream from here; everything else should
+	 * surface the request as unsupported.
+	 */
+	public const SUBSCRIPTION_STREAM_MARK = '__subscription_stream';
+
+	/**
 	 * @var string[] Every MCP protocol version this server can speak, newest
 	 *               first, both eras. Used for `server/discover` and for the
 	 *               UnsupportedProtocolVersion data.supported list.
@@ -74,6 +84,16 @@ class McpServer
 
 	/** @var string[] Per-request `_meta` revisions (no handshake, no sessions). */
 	private array $modernProtocolVersions = [self::MODERN_PROTOCOL_VERSION];
+
+	/**
+	 * @var string[] Notification types this server honors for
+	 *               `subscriptions/listen` (subset of: toolsListChanged,
+	 *               promptsListChanged, resourcesListChanged,
+	 *               resourceSubscriptions). Empty (default) means
+	 *               subscriptions are acknowledged with an empty filter —
+	 *               the spec-compliant "none supported".
+	 */
+	private array $supportedSubscriptionTypes = [];
 
 	/** @var string Version agreed during the last `initialize`. */
 	private string $negotiatedProtocolVersion = self::LEGACY_PROTOCOL_VERSION;
@@ -333,6 +353,27 @@ class McpServer
 	}
 
 	/**
+	 * Declare which notification types `subscriptions/listen` may honor
+	 * (2026-07-28 Subscribe-and-Notify). The acknowledgment echoes only
+	 * types that were both requested and in this list.
+	 *
+	 * @param  string[] $types Subset of: toolsListChanged,
+	 *                         promptsListChanged, resourcesListChanged,
+	 *                         resourceSubscriptions
+	 * @throws \InvalidArgumentException on an unknown type
+	 */
+	public function setSupportedSubscriptions(array $types): self
+	{
+		foreach ($types as $type) {
+			if (!in_array($type, ['toolsListChanged', 'promptsListChanged', 'resourcesListChanged', 'resourceSubscriptions'], true)) {
+				throw new \InvalidArgumentException("unknown subscription type '{$type}'");
+			}
+		}
+		$this->supportedSubscriptionTypes = array_values(array_unique($types));
+		return $this;
+	}
+
+	/**
 	 * Set the human-readable display name (Implementation.title, 2025-11-25).
 	 */
 	public function setTitle(string $title): self
@@ -504,6 +545,14 @@ class McpServer
 				'supported' => $this->supportedProtocolVersions,
 				'requested' => $declared,
 			]);
+		}
+
+		// subscriptions/listen (2026-07-28) never answers in-line: it
+		// returns the stream marker for the transport to take over with.
+		if ($method === 'subscriptions/listen') {
+			$this->log("Request {$method} (id=" . json_encode($id) . ') -> subscription stream handoff');
+			$this->activeProgressToken = null; // stream is the transport's from here; no progress token to track
+			return $this->handleSubscriptionsListen($request, $id, $modern);
 		}
 
 		try {
@@ -787,6 +836,68 @@ class McpServer
 			'id' => $id,
 			'result' => $result,
 		];
+	}
+
+	/**
+	 * Handle a subscriptions/listen request (2026-07-28 Subscribe-and-
+	 * Notify): modern requests only, and the response is the stream marker
+	 * ({@see SUBSCRIPTION_STREAM_MARK}) rather than a normal result. The
+	 * honored filter is the intersection of what the client requested and
+	 * what the application declared via setSupportedSubscriptions().
+	 *
+	 * @param  array<string,mixed> $request Full decoded request
+	 * @param  string|int|null     $id      JSON-RPC request id
+	 * @param  bool                $modern  Whether the request is modern-era
+	 * @return array<string,mixed>          Stream marker or error response
+	 */
+	private function handleSubscriptionsListen(array $request, string|int|null $id, bool $modern): array
+	{
+		if (!$modern) {
+			return $this->errorResponse($id, -32601, 'Method not found: subscriptions/listen (requires protocol revision ' . self::MODERN_PROTOCOL_VERSION . ')');
+		}
+		if ($id === null) {
+			return []; // a listen request without an id is a notification; nothing to do
+		}
+		return [
+			'jsonrpc' => '2.0',
+			'id' => $id,
+			self::SUBSCRIPTION_STREAM_MARK => [
+				'subscriptionId' => $id,
+				'notifications' => $this->normalizeSubscriptionFilter($request['params']['notifications'] ?? []),
+			],
+		];
+	}
+
+	/**
+	 * Intersect a requested subscriptions filter with the supported types.
+	 * Unknown keys, unsupported types and malformed values are dropped;
+	 * resourceSubscriptions URIs are exact-match strings (no globbing) and
+	 * are honored as given with empties removed.
+	 *
+	 * @param  array<string,mixed>  $requested params.notifications
+	 * @return array<string,mixed>             Acknowledgment filter
+	 */
+	private function normalizeSubscriptionFilter(mixed $requested): array
+	{
+		if (!is_array($requested)) {
+			$requested = [];
+		}
+		$ack = [];
+		foreach (['toolsListChanged', 'promptsListChanged', 'resourcesListChanged'] as $flag) {
+			if (!empty($requested[$flag]) && in_array($flag, $this->supportedSubscriptionTypes, true)) {
+				$ack[$flag] = true;
+			}
+		}
+		if (isset($requested['resourceSubscriptions']) && in_array('resourceSubscriptions', $this->supportedSubscriptionTypes, true)) {
+			$uris = [];
+			foreach ((array)$requested['resourceSubscriptions'] as $uri) {
+				if (is_string($uri) && $uri !== '') {
+					$uris[] = $uri;
+				}
+			}
+			$ack['resourceSubscriptions'] = array_values(array_unique($uris));
+		}
+		return $ack;
 	}
 
 	/**

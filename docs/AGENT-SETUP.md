@@ -121,6 +121,19 @@ Continuum is the coordination surface, not a chat log. Per session:
 Every mutation is attributed to your API key's agent name and written
 to the append-only event log (`coordination_event_log` to inspect).
 
+### Subscriptions (modern-protocol clients)
+
+Instead of polling reads, a client speaking protocol revision
+2026-07-28 can open `subscriptions/listen` with
+`{"notifications": {"resourceSubscriptions": ["continuum://tasks", "continuum://locks"]}}`
+and receive `notifications/resources/updated` as the board changes
+(exact-URI matching; subscribe to the static list URIs and/or specific
+`{id}`/`{key}` URIs). Resource reads are then plain `resources/read`
+calls. Only `resourceSubscriptions` is honored; list-changed
+notifications are not emitted (the tool/resource surface is static).
+The stdio transport does not multiplex subscriptions — use the HTTP
+endpoint for them.
+
 ## Operator checklist
 
 1. Front-stack route: `<public-name>` → app `:8089` with PROXY protocol

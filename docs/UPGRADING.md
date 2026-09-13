@@ -27,6 +27,11 @@ Package: `php84-continuum` from the estate pkg repo. Fresh installs:
   `resources/templates/list`, and `resources/read`. No settings keys,
   no engine schema changes, and the tool surface is unchanged — clients
   that ignore resources are unaffected.
+- **Subscriptions (unreleased)**: `subscriptions/listen` answers only on
+  the 2026-07-28 protocol revision; legacy clients see -32601 and are
+  unaffected. Each open listen stream holds one PHP worker for its
+  lifetime — size the pool if many agents will keep subscriptions open
+  (agents that only read don't need them).
 
 
 - **CLAIMED_BY edges** carry a `task` property (added during Phase 4).

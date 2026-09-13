@@ -8,6 +8,17 @@ introduces them (see AGENTS.md). Version parity is enforced between
 
 ### Added
 
+- Subscribe-and-Notify (MCP 2026-07-28): `subscriptions/listen` on the
+  `/mcp` endpoint opens a long-lived SSE stream of
+  `notifications/resources/updated` for the subscribed resource URIs —
+  `continuum://tasks`, `continuum://tasks/{id}`, `continuum://board/...`,
+  `continuum://locks`, `continuum://events`, `continuum://agents/...`.
+  Mutations publish changed URIs through ValKey pub/sub (cross-worker
+  fan-out); the supported set is `resourceSubscriptions` only.
+  Bare heartbeat ticks deliberately do not notify; meta changes
+  (register, working-on, capabilities, label) do. stdio acknowledges and
+  gracefully closes listen requests (no multiplexing without a Comal
+  loop). Legacy-era clients get -32601, matching their capability map.
 - MCP resources: the board's read surface is now URI-addressable
   (`resources/list`, `resources/templates/list`, `resources/read`; the
   `resources` capability is advertised automatically). Tools remain the

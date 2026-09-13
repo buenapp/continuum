@@ -10,6 +10,10 @@ namespace Continuum\Storage;
  */
 class ContinuumStorage implements ContinuumStorageInterface {
 
+    /** ValKey pub/sub channel name (under the store's signal: prefix)
+     *  carrying resource-change notifications for MCP subscriptions. */
+    public const CHANGES_CHANNEL = 'changes';
+
     public function __construct(
         private ValKeyStore $valkey,
         private CouchDBStore $couch,
@@ -47,6 +51,24 @@ class ContinuumStorage implements ContinuumStorageInterface {
         $this->arcade->ensureSchema();
     }
 
+    /**
+     * Announce that the given resource URIs changed (MCP subscriptions).
+     * Runs after the mutation it reports; a publish failure must never
+     * fail the mutation itself.
+     */
+    public function publishChanges(array $uris): void {
+        if ($uris === []) { return; }
+        try {
+            $this->valkey->publishSignal(self::CHANGES_CHANNEL, [
+                'uris' => array_values($uris),
+                'ts' => gmdate('c'),
+                'agent' => defined('CONTINUUM_AGENT') ? CONTINUUM_AGENT : null,
+            ]);
+        } catch (\Throwable) {
+            // best-effort notification only
+        }
+    }
+
     // --- Ephemeral passthrough
     public function enqueueTask(string $queue, string $taskId, array $payload): void {
         $this->valkey->enqueueTask($queue, $taskId, $payload);
@@ -61,16 +83,29 @@ class ContinuumStorage implements ContinuumStorageInterface {
         $this->valkey->publishSignal($channel, $signal);
     }
     public function acquireLock(string $name, string $ownerId, int $ttlSeconds): bool {
-        return $this->valkey->acquireLock($name, $ownerId, $ttlSeconds);
+        $acquired = $this->valkey->acquireLock($name, $ownerId, $ttlSeconds);
+        if ($acquired) {
+            $this->publishChanges(['continuum://locks', "continuum://locks/{$name}"]);
+        }
+        return $acquired;
     }
     public function releaseLock(string $name, string $ownerId): bool {
-        return $this->valkey->releaseLock($name, $ownerId);
+        $released = $this->valkey->releaseLock($name, $ownerId);
+        if ($released) {
+            $this->publishChanges(['continuum://locks', "continuum://locks/{$name}"]);
+        }
+        return $released;
     }
     public function checkLock(string $name): ?array {
         return $this->valkey->checkLock($name);
     }
     public function heartbeat(string $agentId, array $meta = []): void {
         $this->valkey->heartbeat($agentId, $meta);
+        // Bare heartbeat ticks are presence churn and do not notify; the
+        // agent directory only meaningfully changes when meta is written.
+        if ($meta !== []) {
+            $this->publishChanges(['continuum://agents', "continuum://agents/{$agentId}"]);
+        }
     }
     public function agents(): array {
         return $this->valkey->agents();
@@ -123,6 +158,7 @@ class ContinuumStorage implements ContinuumStorageInterface {
     public function saveTask(string $taskId, array $task, ?string $rev = null): array {
         $wrote = $this->couch->put('tasks', $taskId, $task, $rev);
         $this->arcade->upsertTaskNode($taskId, $task);
+        $this->publishChanges(['continuum://tasks', "continuum://tasks/{$taskId}"]);
         return $wrote;
     }
     public function loadTask(string $taskId): ?array {
@@ -150,10 +186,18 @@ class ContinuumStorage implements ContinuumStorageInterface {
         return $this->couch->newId();
     }
     public function appendLog(string $agentId, string $type, array $data): string {
-        return $this->couch->appendLog($agentId, $type, $data);
+        $id = $this->couch->appendLog($agentId, $type, $data);
+        $this->publishChanges(['continuum://events']);
+        return $id;
     }
     public function saveBoardEntry(string $board, string $key, array $entry, ?string $rev = null): array {
-        return $this->couch->put('boards', self::boardId($board, $key), $entry, $rev);
+        $wrote = $this->couch->put('boards', self::boardId($board, $key), $entry, $rev);
+        $this->publishChanges([
+            'continuum://board/index',
+            "continuum://board/{$board}/{$key}",
+            "continuum://snapshot/{$board}",
+        ]);
+        return $wrote;
     }
     public function loadBoardEntry(string $board, string $key): ?array {
         return $this->couch->get('boards', self::boardId($board, $key));
@@ -166,6 +210,11 @@ class ContinuumStorage implements ContinuumStorageInterface {
     }
     public function deleteBoardEntry(string $board, string $key, string $rev): void {
         $this->couch->deleteDoc('boards', self::boardId($board, $key), $rev);
+        $this->publishChanges([
+            'continuum://board/index',
+            "continuum://board/{$board}/{$key}",
+            "continuum://snapshot/{$board}",
+        ]);
     }
 
     /**
