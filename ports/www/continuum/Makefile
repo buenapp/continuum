@@ -1,6 +1,6 @@
 PORTNAME=	continuum
 DISTVERSIONPREFIX=	v
-DISTVERSION=	0.2.1
+DISTVERSION=	0.2.2
 CATEGORIES=	www
 MASTER_SITES=	https://pacyworld.dev/buenapp/continuum/archive/
 PKGNAMEPREFIX=	${PHP_PKGNAMEPREFIX}

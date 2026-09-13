@@ -3,7 +3,7 @@
 Continuum follows semver. `UPGRADING.md` lists everything an operator must
 do when moving between versions; it ships with the code that requires it.
 
-## Unreleased
+## 0.2.2
 
 Same migration as 0.2.1, extended to the remaining thirteen tools:
 mutations (`task_create`, `task_claim`, `task_update_status`,
