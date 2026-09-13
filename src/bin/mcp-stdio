@@ -17,6 +17,14 @@ use EnchiladaMCP\McpServer;
 use Enchilada\Tortilla\ComalEventLoop;
 use Enchilada\Tortilla\StdioTransport;
 use Continuum\ServerTools;
+use Continuum\BoardTools;
+use Continuum\TaskTools;
+use Continuum\LockTools;
+use Continuum\ContextTools;
+use Continuum\Storage\ContinuumStorage;
+
+// stdio has no transport auth; attribute everything to a fixed identity.
+defined('CONTINUUM_AGENT') || define('CONTINUUM_AGENT', 'stdio');
 
 $server = new McpServer(APPLICATION_NAME, APPLICATION_VERSION);
 
@@ -30,6 +38,14 @@ $server->setTitle(APPLICATION_NAME)
     ->setWebsiteUrl(APPLICATION_WEBSITE);
 
 $server->register(new ServerTools());
+
+global $SETTINGS;
+$storage = ContinuumStorage::fromSettings($SETTINGS);
+$storage->ensureSchema();
+$server->register(new BoardTools($storage));
+$server->register(new TaskTools($storage));
+$server->register(new LockTools($storage));
+$server->register(new ContextTools($storage));
 
 // Run via StdioTransport: primitives in (handler, progress emitter),
 // notifier back out. The loop is strict opt-in — with Comal not

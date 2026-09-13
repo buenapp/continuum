@@ -105,18 +105,22 @@ class ArcadeDBStore extends EnchiladaHTTP {
         );
     }
 
-    /** Record agent-task relationship (current claim). */
+    /**
+     * Record agent-task relationship (current claim). The edge carries the
+     * task id as a property: ArcadeDB has no DELETE EDGE statement and no
+     * link traversal in WHERE, so unclaim() matches on that property.
+     */
     public function mapAgentRelationship(string $agentId, string $taskId): void {
         $this->command("UPDATE Agent SET name = :a UPSERT WHERE name = :a", ['a' => $agentId]);
         $this->command(
-            "CREATE EDGE CLAIMED_BY FROM (SELECT FROM Task WHERE id = :t) TO (SELECT FROM Agent WHERE name = :a)",
+            "CREATE EDGE CLAIMED_BY FROM (SELECT FROM Task WHERE id = :t) TO (SELECT FROM Agent WHERE name = :a) SET task = :t",
             ['t' => $taskId, 'a' => $agentId]
         );
     }
 
     public function unclaim(string $taskId): void {
         $this->command(
-            "DELETE EDGE CLAIMED_BY FROM (SELECT FROM Task WHERE id = :t)",
+            "DELETE FROM CLAIMED_BY WHERE task = :t",
             ['t' => $taskId]
         );
     }

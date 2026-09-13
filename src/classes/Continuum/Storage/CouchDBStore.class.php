@@ -57,6 +57,20 @@ class CouchDBStore extends EnchiladaHTTP {
         return $ids;
     }
 
+    /** List all documents (id => doc) in one _all_docs round trip. */
+    public function listDocs(string $kind): array {
+        $result = $this->call($this->dbName($kind) . '/_all_docs?include_docs=true', null, 'GET');
+        if (!is_array($result) && !is_object($result)) { return []; }
+        $docs = [];
+        foreach (((array)$result)['rows'] ?? [] as $row) {
+            $row = (array)$row;
+            $id = $row['id'] ?? '';
+            if ($id === '' || str_starts_with($id, '_design/')) { continue; }
+            $docs[$id] = isset($row['doc']) ? (array)$row['doc'] : [];
+        }
+        return $docs;
+    }
+
     /** Append an event to the append-only log database. Returns the doc id. */
     public function appendLog(string $agentId, string $type, array $data): string {
         $ms = ((int)floor(microtime(true) * 1000)) % 1000;

@@ -12,6 +12,9 @@ namespace Continuum\Storage;
  */
 interface ContinuumStorageInterface {
 
+    /** Idempotent graph schema bootstrap; call once per process. */
+    public function ensureSchema(): void;
+
     // --- Ephemeral (ValKey)
     public function enqueueTask(string $queue, string $taskId, array $payload): void;
     public function claimQueuedTask(string $queue): ?array;   // ['id'=>, 'payload'=>] or null
@@ -22,6 +25,7 @@ interface ContinuumStorageInterface {
     public function checkLock(string $name): ?array;
     public function heartbeat(string $agentId, array $meta = []): void;
     public function agents(): array;
+    public function presence(): array;   // agentId => heartbeat ts
     public function inboxPush(string $agentId, array $message): int;
     public function inboxDrain(string $agentId): array;
 
@@ -31,6 +35,9 @@ interface ContinuumStorageInterface {
     public function saveTask(string $taskId, array $task, ?string $rev = null): array;
     public function loadTask(string $taskId): ?array;
     public function listTaskIds(): array;
+    public function listTaskDocs(): array;   // id => doc
+    public function listBoardDocs(string $board): array;   // key => doc
+    public function newId(): string;
     public function appendLog(string $agentId, string $type, array $data): string;
     public function saveBoardEntry(string $board, string $key, array $entry, ?string $rev = null): array;
     public function loadBoardEntry(string $board, string $key): ?array;

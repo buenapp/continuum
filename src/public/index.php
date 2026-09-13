@@ -16,6 +16,11 @@ require_once 'includes/bootstrap.inc.php';
 use EnchiladaMCP\McpServer;
 use Enchilada\Tortilla\HttpSseTransport;
 use Continuum\ServerTools;
+use Continuum\BoardTools;
+use Continuum\TaskTools;
+use Continuum\LockTools;
+use Continuum\ContextTools;
+use Continuum\Storage\ContinuumStorage;
 
 // Health probe (unauthenticated; no sensitive data)
 $requestUri = parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH);
@@ -59,6 +64,16 @@ $server->setTitle(APPLICATION_NAME)
     ->setWebsiteUrl(APPLICATION_WEBSITE);
 
 $server->register(new ServerTools());
+
+// Tool surface rides on the storage facade. ensureSchema is idempotent
+// and runs per request (PHP userland state resets between requests).
+$storage = ContinuumStorage::fromSettings($SETTINGS);
+$storage->ensureSchema();
+
+$server->register(new BoardTools($storage));
+$server->register(new TaskTools($storage));
+$server->register(new LockTools($storage));
+$server->register(new ContextTools($storage));
 
 $transport = new HttpSseTransport(
     $server->handleRequest(...),

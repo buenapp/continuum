@@ -42,6 +42,11 @@ class ContinuumStorage implements ContinuumStorageInterface {
         return new self($valkey, $couch, $arcade);
     }
 
+    /** Idempotent graph schema bootstrap; call once per process. */
+    public function ensureSchema(): void {
+        $this->arcade->ensureSchema();
+    }
+
     // --- Ephemeral passthrough
     public function enqueueTask(string $queue, string $taskId, array $payload): void {
         $this->valkey->enqueueTask($queue, $taskId, $payload);
@@ -70,6 +75,14 @@ class ContinuumStorage implements ContinuumStorageInterface {
     public function agents(): array {
         return $this->valkey->agents();
     }
+    /** Registered agents with their last heartbeat unix timestamp. */
+    public function presence(): array {
+        $out = [];
+        foreach ($this->valkey->agents() as $agentId) {
+            $out[$agentId] = $this->valkey->agentHeartbeatTime($agentId);
+        }
+        return $out;
+    }
     public function inboxPush(string $agentId, array $message): int {
         return $this->valkey->inboxPush($agentId, $message);
     }
@@ -95,14 +108,28 @@ class ContinuumStorage implements ContinuumStorageInterface {
     public function listTaskIds(): array {
         return $this->couch->listIds('tasks');
     }
+    public function listTaskDocs(): array {
+        return $this->couch->listDocs('tasks');
+    }
+    public function listBoardDocs(string $board): array {
+        $prefix = $board . '/';
+        $docs = [];
+        foreach ($this->couch->listDocs('boards') as $id => $doc) {
+            if (str_starts_with($id, $prefix)) { $docs[substr($id, strlen($prefix))] = $doc; }
+        }
+        return $docs;
+    }
+    public function newId(): string {
+        return $this->couch->newId();
+    }
     public function appendLog(string $agentId, string $type, array $data): string {
         return $this->couch->appendLog($agentId, $type, $data);
     }
     public function saveBoardEntry(string $board, string $key, array $entry, ?string $rev = null): array {
-        return $this->couch->put('boards', "{$board}/{$key}", $entry, $rev);
+        return $this->couch->put('boards', self::boardId($board, $key), $entry, $rev);
     }
     public function loadBoardEntry(string $board, string $key): ?array {
-        return $this->couch->get('boards', "{$board}/{$key}");
+        return $this->couch->get('boards', self::boardId($board, $key));
     }
     public function listBoardKeys(string $board): array {
         return array_map(
@@ -111,7 +138,22 @@ class ContinuumStorage implements ContinuumStorageInterface {
         );
     }
     public function deleteBoardEntry(string $board, string $key, string $rev): void {
-        $this->couch->deleteDoc('boards', "{$board}/{$key}", $rev);
+        $this->couch->deleteDoc('boards', self::boardId($board, $key), $rev);
+    }
+
+    /**
+     * Board doc ids are "{scope}/{key}". Segments must not begin with '_'
+     * (CouchDB reserves that namespace) and must not contain '/'.
+     */
+    private static function boardId(string $board, string $key): string {
+        foreach (['scope' => $board, 'key' => $key] as $what => $seg) {
+            if (!preg_match('/^[A-Za-z0-9][A-Za-z0-9._-]*$/', $seg)) {
+                throw new \InvalidArgumentException(
+                    "invalid {$what} '{$seg}': start with [A-Za-z0-9]; only letters, digits, '.', '_' and '-' allowed"
+                );
+            }
+        }
+        return "{$board}/{$key}";
     }
 
     // --- Structural passthrough
