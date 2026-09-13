@@ -3,6 +3,13 @@
 Continuum follows semver. `UPGRADING.md` lists everything an operator must
 do when moving between versions; it ships with the code that requires it.
 
+## 0.2.0
+
+`pkg upgrade` is sufficient: no settings keys, no engine schema changes;
+the tool surface is unchanged (see the compatibility notes below for
+behavior details). Everything added is capability-advertised and
+optional.
+
 ## 0.1.0
 
 First tagged release: `v0.1.0` == port `DISTVERSION` == `APPLICATION_VERSION`.
@@ -22,7 +29,7 @@ Package: `php84-continuum` from the estate pkg repo. Fresh installs:
 
 ## Compatibility notes
 
-- **MRTR elicitation (unreleased)**: `task_claim` and
+- **MRTR elicitation (0.2.0)**: `task_claim` and
   `advisory_lock_release` gained an optional `confirm` argument;
   existing calls without it behave exactly as before, except that
   claiming a task another agent holds now yields a confirmation
@@ -33,12 +40,12 @@ Package: `php84-continuum` from the estate pkg repo. Fresh installs:
   unchanged.
 
 
-- **MCP resources, prompts, completion (unreleased)**: purely additive.
+- **MCP resources, prompts, completion (0.2.0)**: purely additive.
   The server now advertises the `resources`, `prompts`, and
   `completions` capabilities and answers the corresponding method
   families. No settings keys, no engine schema changes, and the tool
   surface is unchanged — clients that ignore them are unaffected.
-- **Subscriptions (unreleased)**: `subscriptions/listen` answers only on
+- **Subscriptions (0.2.0)**: `subscriptions/listen` answers only on
   the 2026-07-28 protocol revision; legacy clients see -32601 and are
   unaffected. Each open listen stream holds one PHP worker for its
   lifetime — size the pool if many agents will keep subscriptions open
