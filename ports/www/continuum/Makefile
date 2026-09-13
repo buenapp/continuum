@@ -42,6 +42,7 @@ do-install:
 	@${MKDIR} ${STAGEDIR}${WWWDIR}/public
 	@${MKDIR} ${STAGEDIR}${WWWDIR}/system
 	${INSTALL_SCRIPT} ${WRKSRC}/src/bin/mcp-stdio ${STAGEDIR}${WWWDIR}/bin/
+	${INSTALL_SCRIPT} ${WRKSRC}/src/bin/smoke-test ${STAGEDIR}${WWWDIR}/bin/
 	${INSTALL_DATA} ${WRKSRC}/src/classes/Continuum/*.php ${STAGEDIR}${WWWDIR}/classes/Continuum/
 	${INSTALL_DATA} ${WRKSRC}/src/classes/Continuum/Bridge/*.php ${STAGEDIR}${WWWDIR}/classes/Continuum/Bridge/
 	${INSTALL_DATA} ${WRKSRC}/src/classes/Continuum/Storage/*.php ${STAGEDIR}${WWWDIR}/classes/Continuum/Storage/

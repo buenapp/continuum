@@ -132,6 +132,15 @@ introduces them (see AGENTS.md). Version parity is enforced between
 - Tool surface is registered in both the HTTP entry point and the stdio
   transport (`bin/mcp-stdio`, fixed `stdio` identity).
 
+### QA environment
+
+- `bin/smoke-test`: end-to-end wire test driving a live server —
+  health, initialize/discover, catalogs, task lifecycle, board
+  round-trip via tools and resources, subscription stream with a forked
+  listener, and the MRTR steal cycle (needs `--key2`). Ships in the
+  port and runs against any URL + agent key. Companion doc: docs/QA.md
+  (QA-environment setup, isolation rules, release QA checklist).
+
 ### Documentation
 
 - README now covers the full MCP surface (resources, prompts,
