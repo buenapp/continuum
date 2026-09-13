@@ -8,6 +8,9 @@ introduces them (see AGENTS.md). Version parity is enforced between
 
 ### Added
 
+- Release engineering: BSD-3-Clause LICENSE, `ports/www/continuum`
+  FreeBSD port (php84-continuum, installs to `/usr/local/www/continuum`,
+  Apache front-stack vhost example under EXAMPLES).
 - Metrics + CI (Phase 2 remainder):
   - `/metrics` (authenticated, Prometheus text format): live gauges
     `continuum_tasks_open`, `continuum_agents_registered`,
