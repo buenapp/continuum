@@ -8,6 +8,27 @@ introduces them (see AGENTS.md). Version parity is enforced between
 
 ### Added
 
+- MCP resources: the board's read surface is now URI-addressable
+  (`resources/list`, `resources/templates/list`, `resources/read`; the
+  `resources` capability is advertised automatically). Tools remain the
+  mutation side; nothing about the tool surface changed.
+  - Statics: `continuum://board/index` (all scopes + keys with
+    attribution), `continuum://tasks` (non-terminal tasks), `continuum://agents`
+    (presence directory), `continuum://locks` (held advisory locks),
+    `continuum://events` (50-event tail).
+  - Templates: `continuum://board/{scope}/{key}`, `continuum://snapshot/{scope}`,
+    `continuum://tasks/{id}` (full card incl. notes, handoffs, graph
+    neighborhood), `continuum://agents/{id}`, `continuum://locks/{name}`,
+    `continuum://events/since/{timestamp}`, and
+    `continuum://context/pack/{scope}` — the session-start brief as a
+    `text/markdown` resource clients can attach directly.
+  - Per-read `lastModified` annotations come from the underlying doc
+    timestamps (board entries, tasks, events) and heartbeat times
+    (agents); `audience: assistant` on everything, `priority: 0.9` on the
+    context pack. Read results carry `ttlMs: 0` on modern-protocol
+    requests — the board is live data.
+  - Registered on both entry points: `/mcp` (Streamable HTTP) and
+    `bin/mcp-stdio`.
 - Release engineering: BSD-3-Clause LICENSE, `ports/www/continuum`
   FreeBSD port (php84-continuum, installs to `/usr/local/www/continuum`,
   Apache front-stack vhost example under EXAMPLES).

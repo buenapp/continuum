@@ -22,6 +22,13 @@ Package: `php84-continuum` from the estate pkg repo. Fresh installs:
 
 ## Compatibility notes
 
+- **MCP resources (unreleased)**: purely additive. The server now
+  advertises the `resources` capability and answers `resources/list`,
+  `resources/templates/list`, and `resources/read`. No settings keys,
+  no engine schema changes, and the tool surface is unchanged — clients
+  that ignore resources are unaffected.
+
+
 - **CLAIMED_BY edges** carry a `task` property (added during Phase 4).
   Edges created without it will not be removed by `task_update_status`
   done/cancelled or `task_handoff`; delete them by rid:

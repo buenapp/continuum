@@ -26,6 +26,12 @@ use Continuum\MessageTools;
 use Continuum\EventTools;
 use Continuum\StatusTools;
 use Continuum\MemoryTools;
+use Continuum\BoardResources;
+use Continuum\TaskResources;
+use Continuum\AgentResources;
+use Continuum\LockResources;
+use Continuum\EventResources;
+use Continuum\ContextResources;
 use Continuum\Storage\ContinuumStorage;
 use Continuum\Bridge\HeliofaneMcpBridge;
 
@@ -68,6 +74,13 @@ if ($heliofaneUrl !== '') {
     );
 }
 $server->register(new MemoryTools($storage, $heliofaneBridge));
+
+$server->register(new BoardResources($storage));
+$server->register(new TaskResources($storage));
+$server->register(new AgentResources($storage));
+$server->register(new LockResources($storage));
+$server->register(new EventResources($storage));
+$server->register(new ContextResources($storage));
 
 // Run via StdioTransport: primitives in (handler, progress emitter),
 // notifier back out. The loop is strict opt-in — with Comal not

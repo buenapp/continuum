@@ -25,6 +25,12 @@ use Continuum\MessageTools;
 use Continuum\EventTools;
 use Continuum\StatusTools;
 use Continuum\MemoryTools;
+use Continuum\BoardResources;
+use Continuum\TaskResources;
+use Continuum\AgentResources;
+use Continuum\LockResources;
+use Continuum\EventResources;
+use Continuum\ContextResources;
 use Continuum\Dashboard;
 use Continuum\Storage\ContinuumStorage;
 use Continuum\Bridge\NullMilestoneSyncAdapter;
@@ -139,6 +145,14 @@ $server->register(new MessageTools($storage));
 $server->register(new EventTools($storage));
 $server->register(new StatusTools($storage));
 $server->register(new MemoryTools($storage, $heliofaneBridge));
+
+// Read-only URI surface (MCP resources); tools remain the mutation side.
+$server->register(new BoardResources($storage));
+$server->register(new TaskResources($storage));
+$server->register(new AgentResources($storage));
+$server->register(new LockResources($storage));
+$server->register(new EventResources($storage));
+$server->register(new ContextResources($storage));
 
 // Request metrics: per-tool call counter + duration, flushed to ValKey
 // at end of request (flush failures never propagate).

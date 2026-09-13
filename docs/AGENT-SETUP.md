@@ -97,6 +97,8 @@ Continuum is the coordination surface, not a chat log. Per session:
    the budget-curated brief — open tasks, recent board entries, agent
    presence. Prefer it over raw scans. Add a `query` term for relevance
    ranking (semantic when the operator configured `[embeddings]`).
+   Resource-capable clients can attach the same brief directly as
+   `continuum://context/pack/{scope}` instead of calling the tool.
 3. **Claim before working**: `task_claim` is atomic (MVCC); a raced
    claim fails with a conflict error. Work transitions via
    `task_update_status(...)`.
