@@ -3,6 +3,19 @@
 Continuum follows semver. `UPGRADING.md` lists everything an operator must
 do when moving between versions; it ships with the code that requires it.
 
+## Unreleased
+
+Same migration as 0.2.1, extended to the remaining thirteen tools:
+mutations (`task_create`, `task_claim`, `task_update_status`,
+`task_handoff`, `blackboard_write`, `blackboard_delete`,
+`advisory_lock_acquire`, `advisory_lock_release`, `agent_register`,
+`agent_heartbeat`, `message_send`, `message_inbox_pull`,
+`message_broadcast`, `promote_to_memory`) now also return dual format —
+their `result.content[0].text` is a human-readable sentence, and the
+machine payload is `result.structuredContent`. Clients that were
+JSON-parsing the text block must switch to `structuredContent`; the
+packaged `bin/smoke-test` already does.
+
 ## 0.2.1
 
 No operator action: no settings keys, no engine schema changes, no

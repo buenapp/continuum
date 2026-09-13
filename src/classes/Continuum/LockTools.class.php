@@ -21,33 +21,39 @@ class LockTools {
     #[McpTool(
         name: 'advisory_lock_acquire',
         renamedFrom: 'lock_acquire',
-        description: 'Acquire an advisory named lock with a TTL (seconds). Advisory means cooperation-based: holders cannot block others from touching the resource — it is a claim other agents are expected to respect. Fails cleanly when another agent holds it.'
+        description: 'Acquire an advisory named lock with a TTL (seconds). Advisory means cooperation-based: holders cannot block others from touching the resource — it is a claim other agents are expected to respect. Fails cleanly when another agent holds it.',
+        outputSchema: self::ACQUIRE_SCHEMA
     )]
-    public function advisory_lock_acquire(string $name, int $ttlSeconds = 300): array {
+    public function advisory_lock_acquire(string $name, int $ttlSeconds = 300): ToolResult {
         if ($ttlSeconds < 1) {
             throw new \RuntimeException('ttlSeconds must be >= 1');
         }
         $held = $this->storage->checkLock($name);
         if ($held !== null && $held['owner'] !== CONTINUUM_AGENT) {
-            return ['name' => $name, 'acquired' => false, 'owner' => $held['owner'], 'ttl_ms' => $held['ttl_ms']];
+            $data = ['name' => $name, 'acquired' => false, 'owner' => $held['owner'], 'ttl_ms' => $held['ttl_ms']];
+            return ToolResult::structured(
+                "Lock '{$name}' not acquired — held by {$held['owner']} ({$held['ttl_ms']}ms TTL left).", $data);
         }
         if (!$this->storage->acquireLock($name, CONTINUUM_AGENT, $ttlSeconds)) {
-            return ['name' => $name, 'acquired' => false];
+            return ToolResult::structured("Lock '{$name}' not acquired (a competing claim won the race).",
+                ['name' => $name, 'acquired' => false]);
         }
         $this->storage->appendLog(CONTINUUM_AGENT, 'advisory_lock_acquire', ['lock' => $name, 'ttl' => $ttlSeconds]);
-        return ['name' => $name, 'acquired' => true, 'owner' => CONTINUUM_AGENT, 'ttl' => $ttlSeconds];
+        $data = ['name' => $name, 'acquired' => true, 'owner' => CONTINUUM_AGENT, 'ttl' => $ttlSeconds];
+        return ToolResult::structured("Acquired lock '{$name}' ({$ttlSeconds}s TTL).", $data);
     }
 
     #[McpTool(
         name: 'advisory_lock_release',
         renamedFrom: 'lock_release',
         description: 'Release a named advisory lock. Only the owner can release; a non-owner release fails unless force-released after confirmation: leave `confirm` null to be prompted (MRTR elicitation), or pass the answer object directly. An expired or orphaned lock is a legitimate force-release target.',
-        idempotentHint: true
+        idempotentHint: true,
+        outputSchema: self::RELEASE_SCHEMA
     )]
-    public function advisory_lock_release(string $name, ?array $confirm = null): array {
+    public function advisory_lock_release(string $name, ?array $confirm = null): ToolResult {
         if ($this->storage->releaseLock($name, CONTINUUM_AGENT)) {
             $this->storage->appendLog(CONTINUUM_AGENT, 'advisory_lock_release', ['lock' => $name]);
-            return ['name' => $name, 'released' => true];
+            return ToolResult::structured("Released lock '{$name}'.", ['name' => $name, 'released' => true]);
         }
         $held = $this->storage->checkLock($name);
         if ($held !== null && $held['owner'] !== CONTINUUM_AGENT) {
@@ -60,16 +66,45 @@ class LockTools {
                 ]);
             }
             if (!$answer) {
-                return ['name' => $name, 'released' => false, 'owner' => $held['owner'], 'declined' => true];
+                $data = ['name' => $name, 'released' => false, 'owner' => $held['owner'], 'declined' => true];
+                return ToolResult::structured("Force-release of '{$name}' declined — still held by {$held['owner']}.", $data);
             }
             $released = $this->storage->forceReleaseLock($name);
             if ($released) {
                 $this->storage->appendLog(CONTINUUM_AGENT, 'advisory_lock_force_release', ['lock' => $name, 'from' => $held['owner']]);
             }
-            return ['name' => $name, 'released' => $released, 'forced' => true];
+            $data = ['name' => $name, 'released' => $released, 'forced' => true];
+            $text = $released
+                ? "Force-released lock '{$name}' (was held by {$held['owner']})."
+                : "Lock '{$name}' vanished before the force-release landed.";
+            return ToolResult::structured($text, $data);
         }
-        return ['name' => $name, 'released' => false];
+        return ToolResult::structured("Lock '{$name}' is free — nothing to release.", ['name' => $name, 'released' => false]);
     }
+
+    private const ACQUIRE_SCHEMA = [
+        'type' => 'object',
+        'properties' => [
+            'name' => ['type' => 'string'],
+            'acquired' => ['type' => 'boolean'],
+            'owner' => ['type' => 'string'],
+            'ttl_ms' => ['type' => 'integer'],
+            'ttl' => ['type' => 'integer'],
+        ],
+        'required' => ['name', 'acquired'],
+    ];
+
+    private const RELEASE_SCHEMA = [
+        'type' => 'object',
+        'properties' => [
+            'name' => ['type' => 'string'],
+            'released' => ['type' => 'boolean'],
+            'owner' => ['type' => 'string'],
+            'declined' => ['type' => 'boolean'],
+            'forced' => ['type' => 'boolean'],
+        ],
+        'required' => ['name', 'released'],
+    ];
 
     #[McpTool(
         name: 'advisory_lock_check',

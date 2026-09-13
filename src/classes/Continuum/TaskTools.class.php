@@ -37,7 +37,8 @@ class TaskTools {
      */
     #[McpTool(
         name: 'task_create',
-        description: 'Create a task on the blackboard. Status starts as pending; dependencies are recorded in the task graph and the task id is queued for claim.'
+        description: 'Create a task on the blackboard. Status starts as pending; dependencies are recorded in the task graph and the task id is queued for claim.',
+        outputSchema: self::TASK_SUMMARY_SCHEMA
     )]
     public function task_create(
         string $title,
@@ -46,7 +47,7 @@ class TaskTools {
         ?string $phorgeTaskId = null,
         int $priority = 2,
         ?array $dependsOn = null,
-    ): array {
+    ): ToolResult {
         $scope = ($scope === null || $scope === '') ? 'global' : $scope;
         // Same segment rules as board scopes (queue name and doc structure).
         if (!preg_match('/^[A-Za-z0-9][A-Za-z0-9._-]*$/', $scope)) {
@@ -85,7 +86,8 @@ class TaskTools {
         $this->storage->appendLog(CONTINUUM_AGENT, 'task_create', [
             'task' => $taskId, 'title' => $title, 'scope' => $task['scope'], 'assignee' => $assignee,
         ]);
-        return $this->summarize($taskId, $task);
+        return ToolResult::structured('Created task: ' . self::taskLabel($taskId, $task) . ' [scope ' . $task['scope'] . ']',
+            $this->summarize($taskId, $task));
     }
 
     /**
@@ -129,9 +131,10 @@ class TaskTools {
      */
     #[McpTool(
         name: 'task_claim',
-        description: 'Atomically claim a pending task for your agent identity. Fails when the task is not pending or another agent holds it. A held task can be stolen: leave `confirm` null to be prompted (MRTR elicitation), or pass the answer object directly, e.g. {action: "accept", content: {approve: true}}.'
+        description: 'Atomically claim a pending task for your agent identity. Fails when the task is not pending or another agent holds it. A held task can be stolen: leave `confirm` null to be prompted (MRTR elicitation), or pass the answer object directly, e.g. {action: "accept", content: {approve: true}}.',
+        outputSchema: self::TASK_SUMMARY_SCHEMA
     )]
-    public function task_claim(string $taskId, ?array $confirm = null): array {
+    public function task_claim(string $taskId, ?array $confirm = null): ToolResult {
         $task = $this->storage->loadTask($taskId)
             ?? throw new \RuntimeException("task {$taskId} not found");
         $stealFrom = null;
@@ -172,7 +175,8 @@ class TaskTools {
         $this->milestones->syncMilestone($taskId, 'started', [
             'agent' => CONTINUUM_AGENT, 'title' => $task['title'] ?? '', 'phorge_task_id' => $task['phorge_task_id'] ?? null,
         ]);
-        return $this->summarize($taskId, $task);
+        $text = ($stealFrom !== null ? "Stole claim from {$stealFrom}: " : 'Claimed: ') . self::taskLabel($taskId, $task);
+        return ToolResult::structured($text, $this->summarize($taskId, $task));
     }
 
     /**
@@ -182,9 +186,10 @@ class TaskTools {
      */
     #[McpTool(
         name: 'task_update_status',
-        description: 'Move a task through its state machine (' . self::STATUSES_CSV . '). Only the owning agent may update; done/cancelled release the claim.'
+        description: 'Move a task through its state machine (' . self::STATUSES_CSV . '). Only the owning agent may update; done/cancelled release the claim.',
+        outputSchema: self::TASK_SUMMARY_SCHEMA
     )]
-    public function task_update_status(string $taskId, string $status, ?string $note = null): array {
+    public function task_update_status(string $taskId, string $status, ?string $note = null): ToolResult {
         if (!in_array($status, self::STATUSES, true)) {
             throw new \RuntimeException('invalid status; expected one of: ' . self::STATUSES_CSV);
         }
@@ -217,7 +222,8 @@ class TaskTools {
                 'phorge_task_id' => $task['phorge_task_id'] ?? null,
             ]);
         }
-        return $this->summarize($taskId, $task);
+        $text = self::taskLabel($taskId, $task) . ($note !== null && $note !== '' ? ' — note recorded' : '');
+        return ToolResult::structured($text, $this->summarize($taskId, $task));
     }
 
     /**
@@ -226,9 +232,10 @@ class TaskTools {
      */
     #[McpTool(
         name: 'task_handoff',
-        description: 'Attach a handoff document (summary, next steps, blockers), release your claim, and return the task to the pending queue.'
+        description: 'Attach a handoff document (summary, next steps, blockers), release your claim, and return the task to the pending queue.',
+        outputSchema: self::TASK_SUMMARY_SCHEMA
     )]
-    public function task_handoff(string $taskId, string $summary, ?string $nextSteps = null, ?array $blockers = null): array {
+    public function task_handoff(string $taskId, string $summary, ?string $nextSteps = null, ?array $blockers = null): ToolResult {
         $task = $this->storage->loadTask($taskId)
             ?? throw new \RuntimeException("task {$taskId} not found");
         $this->requireOwner($taskId, $task);
@@ -248,7 +255,8 @@ class TaskTools {
             'title' => $task['title'] ?? '', 'priority' => $task['priority'] ?? 2,
         ]);
         $this->storage->appendLog(CONTINUUM_AGENT, 'task_handoff', ['task' => $taskId, 'summary' => $summary]);
-        return $this->summarize($taskId, $task);
+        $text = 'Handed off ' . self::taskLabel($taskId, $task) . ' — requeued as pending: ' . $summary;
+        return ToolResult::structured($text, $this->summarize($taskId, $task));
     }
 
     /** MVCC write with a friendly conflict message. */
@@ -317,10 +325,15 @@ class TaskTools {
      * beside it when one is linked.
      */
     public static function taskLine(string $taskId, array $task): string {
+        return '- ' . self::taskLabel($taskId, $task);
+    }
+
+    /** taskLine without the list bullet, for single-outcome sentences. */
+    public static function taskLabel(string $taskId, array $task): string {
         $meta = [$task['status'] ?? '?', 'p' . ($task['priority'] ?? 2)];
         if (($task['owner'] ?? null) !== null) { $meta[] = '@' . $task['owner']; }
         $ref = $taskId;
         if (!empty($task['phorge_task_id'])) { $ref .= ' · Phorge ' . $task['phorge_task_id']; }
-        return sprintf('- %s [%s] (%s)', $task['title'] ?? '', implode(', ', $meta), $ref);
+        return sprintf('%s [%s] (%s)', $task['title'] ?? '', implode(', ', $meta), $ref);
     }
 }

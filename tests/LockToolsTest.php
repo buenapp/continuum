@@ -24,8 +24,10 @@ class LockToolsTest extends TestCase {
             'OK',    // SET NX EX
         ]);
         $result = $this->tools($resp)->advisory_lock_acquire('build', 60);
-        $this->assertTrue($result['acquired']);
-        $this->assertSame('test-agent', $result['owner']);
+        $data = $result->getStructuredContent();
+        $this->assertTrue($data['acquired']);
+        $this->assertSame('test-agent', $data['owner']);
+        $this->assertStringContainsString("Acquired lock 'build' (60s TTL)", $result->toArray()['content'][0]['text']);
         // lock value is the agent identity with the TTL
         $set = $resp->calls[1];
         $this->assertSame('SET', $set[0]);
@@ -39,23 +41,25 @@ class LockToolsTest extends TestCase {
             45000,   // PTTL
         ]);
         $result = $this->tools($resp)->advisory_lock_acquire('deploy');
-        $this->assertFalse($result['acquired']);
-        $this->assertSame('bob', $result['owner']);
-        $this->assertSame(45000, $result['ttl_ms']);
+        $data = $result->getStructuredContent();
+        $this->assertFalse($data['acquired']);
+        $this->assertSame('bob', $data['owner']);
+        $this->assertSame(45000, $data['ttl_ms']);
+        $this->assertStringContainsString("not acquired — held by bob", $result->toArray()['content'][0]['text']);
         $this->assertCount(2, $resp->calls); // no SET attempted
     }
 
     public function testReleaseOnlyAsOwner(): void {
         $resp = new FakeRespClient([1]); // Lua compare-and-delete matched
         $result = $this->tools($resp)->advisory_lock_release('build');
-        $this->assertTrue($result['released']);
+        $this->assertTrue($result->getStructuredContent()['released']);
         $this->assertSame('EVAL', $resp->calls[0][0]);
     }
 
     public function testReleaseForeignLockFails(): void {
         $resp = new FakeRespClient([0]); // Lua returned 0: not the owner
         $result = $this->tools($resp)->advisory_lock_release('build');
-        $this->assertFalse($result['released']);
+        $this->assertFalse($result->getStructuredContent()['released']);
     }
 
     public function testCheckFreeAndHeld(): void {

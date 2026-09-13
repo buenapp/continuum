@@ -37,15 +37,13 @@ documented error paths.
 
 ### Structured output (dual format)
 
-The eight read tools — `server_info`, `blackboard_read`,
-`blackboard_keys`, `task_list`, `advisory_lock_check`, `context_pack`,
-`board_status`, `coordination_event_log` — return results in the MCP
-(2025-06-18) dual format: a human-first Markdown `content` text block
-plus `structuredContent` carrying the same facts as JSON, validated
-against the `outputSchema` each tool advertises. Task renderings lead
-with the title (and the linked Phorge id when one is set); the internal
-coordination id trails in parentheses. Mutation tools keep plain
-JSON-as-text results for now.
+Every tool returns results in the MCP (2025-06-18) dual format: a
+human-first `content` text block plus `structuredContent` carrying the
+same facts as JSON, validated against the `outputSchema` each tool
+advertises. Read tools render Markdown (`context_pack`'s text block IS
+the pack); mutations answer with a one-line outcome sentence. Task
+renderings lead with the title (and the linked Phorge id when one is
+set); the internal coordination id trails in parentheses.
 
 Tool naming: explicit snake_case nouns, spelled out (no `bb_`, `msg_`,
 bare `lock_`). Qualify when the plain word lies about the contract

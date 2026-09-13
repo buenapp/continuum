@@ -4,6 +4,21 @@ All notable behavior changes ship in this file alongside the code that
 introduces them (see AGENTS.md). Version parity is enforced between
 `APPLICATION_VERSION`, the FreeBSD port's `DISTVERSION`, and the git tag.
 
+## Unreleased
+
+### Changed
+
+- All tools now answer in the MCP 2025-06-18 dual format: the thirteen
+  mutation-side tools (`task_create`, `task_claim`, `task_update_status`,
+  `task_handoff`, `blackboard_write`, `blackboard_delete`,
+  `advisory_lock_acquire`, `advisory_lock_release`, `agent_register`,
+  `agent_heartbeat`, `message_send`, `message_inbox_pull`,
+  `message_broadcast`, `promote_to_memory`) return a human-readable
+  outcome sentence as the text block plus matching `structuredContent`,
+  each with an advertised `outputSchema`. Structured payloads are
+  byte-for-byte what these tools returned before; `bin/smoke-test` now
+  consumes `structuredContent` for them.
+
 ## 0.2.1 (2026-09-13)
 
 ### Changed

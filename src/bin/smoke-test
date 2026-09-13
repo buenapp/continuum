@@ -89,6 +89,11 @@ function rpcModern(string $method, array $params, string $key, ?string $name = n
 
 $marker = 'smoke-' . bin2hex(random_bytes(4));
 
+/** Structured body of a successful tools/call (all tools ship dual format). */
+function toolData(array $resp): array {
+    return $resp['result']['structuredContent'] ?? [];
+}
+
 // --- 1. health
 $ch = curl_init(preg_replace('#/mcp$#', '/health', $URL));
 curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => $TIMEOUT]);
@@ -120,8 +125,9 @@ check('prompts/list has the four coordination prompts', count(array_intersect(['
 
 // --- 5. task lifecycle
 $create = rpc('tools/call', ['name' => 'task_create', 'arguments' => ['title' => "Smoke task {$marker}", 'priority' => 3]], $KEY);
-$taskId = json_decode($create['result']['content'][0]['text'] ?? '', true)['task'] ?? null;
+$taskId = toolData($create)['task'] ?? null;
 check('task_create', is_string($taskId), (string)$taskId);
+check('task_create text block is human-readable', str_contains($create['result']['content'][0]['text'] ?? '', "Smoke task {$marker}"));
 
 if ($taskId !== null) {
     $card = rpc('resources/read', ['uri' => "continuum://tasks/{$taskId}"], $KEY);
@@ -130,8 +136,7 @@ if ($taskId !== null) {
         && !empty($card['result']['contents'][0]['annotations']['lastModified']));
 
     $claim = rpc('tools/call', ['name' => 'task_claim', 'arguments' => ['taskId' => $taskId]], $KEY);
-    $claimBody = json_decode($claim['result']['content'][0]['text'] ?? '', true) ?? [];
-    check('task_claim', ($claimBody['status'] ?? '') === 'claimed');
+    check('task_claim', (toolData($claim)['status'] ?? '') === 'claimed');
 
     $completion = rpc('completion/complete', [
         'ref' => ['type' => 'ref/resource', 'uri' => 'continuum://tasks/{id}'],
@@ -237,7 +242,7 @@ if ($KEY2 === '') {
     skip('MRTR decline keeps state', 'no --key2 given');
 } else {
     $stealTarget = rpc('tools/call', ['name' => 'task_create', 'arguments' => ['title' => "Smoke steal {$marker}"]], $KEY2);
-    $stealId = json_decode($stealTarget['result']['content'][0]['text'] ?? '', true)['task'] ?? null;
+    $stealId = toolData($stealTarget)['task'] ?? null;
     if ($stealId === null) {
         skip('MRTR steal (modern elicitation)', 'second-key task_create failed');
         skip('MRTR decline keeps state', 'second-key task_create failed');
@@ -254,8 +259,7 @@ if ($KEY2 === '') {
             'arguments' => ['taskId' => $stealId],
             'inputResponses' => ['confirm' => ['action' => 'accept', 'content' => ['approve' => true]]],
         ], $KEY, 'task_claim');
-        $retryBody = json_decode($retry['result']['content'][0]['text'] ?? '', true) ?? [];
-        check('MRTR steal approved transfers ownership', ($retryBody['status'] ?? '') === 'claimed');
+        check('MRTR steal approved transfers ownership', (toolData($retry)['status'] ?? '') === 'claimed');
 
         $decline = rpcModern('tools/call', [
             'name' => 'task_claim',

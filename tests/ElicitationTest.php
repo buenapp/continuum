@@ -85,8 +85,7 @@ class ElicitationTest extends TestCase {
         ])['result'];
         $this->assertSame('complete', $result['resultType']);
         $this->assertArrayNotHasKey('isError', $result);
-        $payload = json_decode($result['structuredContent'] ?? $result['content'][0]['text'], true);
-        $this->assertSame('test-agent', $payload['owner']);
+        $this->assertSame('test-agent', $result['structuredContent']['owner'] ?? null);
     }
 
     public function testRetryWithDeclineFailsWithoutMutation(): void {
@@ -119,9 +118,10 @@ class ElicitationTest extends TestCase {
         $result = $this->callTool($this->server($couch, $resp), 'advisory_lock_release', ['name' => 'deploy'], inputResponses: [
             'confirm' => ['action' => 'accept', 'content' => ['approve' => true]],
         ])['result'];
-        $payload = json_decode($result['content'][0]['text'], true);
+        $payload = $result['structuredContent'] ?? [];
         $this->assertTrue($payload['released']);
         $this->assertTrue($payload['forced']);
+        $this->assertStringContainsString('Force-released', $result['content'][0]['text']);
         $this->assertSame('advisory_lock_force_release', $couch->calls[1]['data']['type']);
         $this->assertSame('bob', $couch->calls[1]['data']['data']['from']);
     }
@@ -131,9 +131,10 @@ class ElicitationTest extends TestCase {
         $result = $this->callTool($this->server(new FakeCouch([]), $resp), 'advisory_lock_release', ['name' => 'deploy'], inputResponses: [
             'confirm' => ['action' => 'accept', 'content' => ['approve' => false]],
         ])['result'];
-        $payload = json_decode($result['content'][0]['text'], true);
+        $payload = $result['structuredContent'] ?? [];
         $this->assertFalse($payload['released']);
         $this->assertTrue($payload['declined']);
+        $this->assertStringContainsString('declined', $result['content'][0]['text']);
         $this->assertCount(3, $resp->calls); // EVAL, GET, PTTL — no DEL
     }
 

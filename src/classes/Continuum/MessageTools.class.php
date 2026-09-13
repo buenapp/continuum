@@ -3,6 +3,7 @@
 namespace Continuum;
 
 use EnchiladaMCP\McpTool;
+use EnchiladaMCP\ToolResult;
 use Continuum\Storage\ContinuumStorage;
 
 /**
@@ -17,9 +18,10 @@ class MessageTools {
 
     #[McpTool(
         name: 'message_send',
-        description: 'Send a message to another registered agent\'s inbox, optionally under a topic.'
+        description: 'Send a message to another registered agent\'s inbox, optionally under a topic.',
+        outputSchema: self::SEND_SCHEMA
     )]
-    public function message_send(string $to, string $body, ?string $topic = null): array {
+    public function message_send(string $to, string $body, ?string $topic = null): ToolResult {
         if ($to === '') { throw new \RuntimeException('recipient must not be empty'); }
         $depth = $this->storage->inboxPush($to, [
             'from' => CONTINUUM_AGENT,
@@ -28,26 +30,40 @@ class MessageTools {
             'ts' => gmdate('c'),
         ]);
         $this->storage->appendLog(CONTINUUM_AGENT, 'message_send', ['to' => $to, 'topic' => $topic, 'length' => strlen($body)]);
-        return ['to' => $to, 'queued' => true, 'depth' => $depth];
+        $data = ['to' => $to, 'queued' => true, 'depth' => $depth];
+        return ToolResult::structured("Message queued to '{$to}' (inbox depth {$depth}).", $data);
     }
 
     #[McpTool(
         name: 'message_inbox_pull',
         description: 'Pull up to `limit` (default 20) messages from your own inbox, oldest first. Pulled messages are removed.',
         destructiveHint: true,
-        idempotentHint: false
+        idempotentHint: false,
+        outputSchema: self::PULL_SCHEMA
     )]
-    public function message_inbox_pull(int $limit = 20): array {
+    public function message_inbox_pull(int $limit = 20): ToolResult {
         if ($limit < 1) { $limit = 1; }
         $messages = $this->storage->inboxPull(CONTINUUM_AGENT, $limit);
-        return ['agent' => CONTINUUM_AGENT, 'count' => count($messages), 'messages' => $messages];
+        $data = ['agent' => CONTINUUM_AGENT, 'count' => count($messages), 'messages' => $messages];
+
+        $lines = ['# Inbox for ' . CONTINUUM_AGENT . ' (' . count($messages) . ')'];
+        foreach ($messages as $m) {
+            $lines[] = '- ' . ($m['ts'] ?? '?') . ' from ' . ($m['from'] ?? '?')
+                . (!empty($m['topic']) ? ' [' . $m['topic'] . ']' : '') . ':';
+            foreach (explode("\n", (string)($m['body'] ?? '')) as $bodyLine) {
+                $lines[] = '  ' . $bodyLine;
+            }
+        }
+        if ($messages === []) { $lines[] = '(empty)'; }
+        return ToolResult::structured(implode("\n", $lines), $data);
     }
 
     #[McpTool(
         name: 'message_broadcast',
-        description: 'Send a message to every registered agent except yourself, optionally under a topic.'
+        description: 'Send a message to every registered agent except yourself, optionally under a topic.',
+        outputSchema: self::BROADCAST_SCHEMA
     )]
-    public function message_broadcast(string $body, ?string $topic = null): array {
+    public function message_broadcast(string $body, ?string $topic = null): ToolResult {
         $delivered = [];
         foreach ($this->storage->agents() as $agentId) {
             if ($agentId === CONTINUUM_AGENT) { continue; }
@@ -60,6 +76,47 @@ class MessageTools {
             $delivered[] = $agentId;
         }
         $this->storage->appendLog(CONTINUUM_AGENT, 'message_broadcast', ['topic' => $topic, 'recipients' => count($delivered)]);
-        return ['delivered' => $delivered, 'count' => count($delivered)];
+        $data = ['delivered' => $delivered, 'count' => count($delivered)];
+        $text = $delivered === []
+            ? 'Broadcast dropped: no other agents registered.'
+            : 'Broadcast to ' . count($delivered) . ' agent(s): ' . implode(', ', $delivered) . '.';
+        return ToolResult::structured($text, $data);
     }
+
+    private const SEND_SCHEMA = [
+        'type' => 'object',
+        'properties' => [
+            'to' => ['type' => 'string'],
+            'queued' => ['type' => 'boolean'],
+            'depth' => ['type' => 'integer'],
+        ],
+        'required' => ['to', 'queued', 'depth'],
+    ];
+
+    private const PULL_SCHEMA = [
+        'type' => 'object',
+        'properties' => [
+            'agent' => ['type' => 'string'],
+            'count' => ['type' => 'integer'],
+            'messages' => ['type' => 'array', 'items' => [
+                'type' => 'object',
+                'properties' => [
+                    'from' => ['type' => 'string'],
+                    'topic' => ['type' => ['string', 'null']],
+                    'body' => ['type' => 'string'],
+                    'ts' => ['type' => 'string'],
+                ],
+            ]],
+        ],
+        'required' => ['agent', 'count', 'messages'],
+    ];
+
+    private const BROADCAST_SCHEMA = [
+        'type' => 'object',
+        'properties' => [
+            'delivered' => ['type' => 'array', 'items' => ['type' => 'string']],
+            'count' => ['type' => 'integer'],
+        ],
+        'required' => ['delivered', 'count'],
+    ];
 }

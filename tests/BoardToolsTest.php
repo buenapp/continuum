@@ -30,9 +30,11 @@ class BoardToolsTest extends TestCase {
             ['code' => 201, 'body' => ['id' => 'ev1', 'rev' => '1-b']],             // PUT event
         ]);
         $result = (new BoardTools($this->storage($couch)))->blackboard_write('foo', ['n' => 1]);
-        $this->assertSame('global', $result['scope']);
-        $this->assertSame('test-agent', $result['updated_by']);
-        $this->assertSame('1-a', $result['rev']);
+        $data = $result->getStructuredContent();
+        $this->assertSame('global', $data['scope']);
+        $this->assertSame('test-agent', $data['updated_by']);
+        $this->assertSame('1-a', $data['rev']);
+        $this->assertStringContainsString('Wrote global/foo (rev 1-a)', $result->toArray()['content'][0]['text']);
         // event log write went to continuum_events with the agent identity
         $this->assertSame('continuum_events/' . 'ev1', $couch->calls[3]['path']);
         $this->assertSame('test-agent', $couch->calls[3]['data']['agent']);
@@ -99,7 +101,7 @@ class BoardToolsTest extends TestCase {
             ['code' => 201, 'body' => ['id' => 'ev2', 'rev' => '1-x']],
         ]);
         $result = (new BoardTools($this->storage($couch)))->blackboard_delete('foo', $hiddenagent);
-        $this->assertTrue($result['deleted']);
+        $this->assertTrue($result->getStructuredContent()['deleted']);
         $this->assertStringStartsWith('DELETE', $couch->calls[1]['verb']);
     }
 }

@@ -33,7 +33,8 @@ class AgentToolsTest extends TestCase {
             3,      // HSET
         ]);
         $result = $this->tools($resp)->agent_register(['php', 'zig'], 'Devin CLI');
-        $this->assertTrue($result['registered']);
+        $this->assertTrue($result->getStructuredContent()['registered']);
+        $this->assertStringContainsString("Registered 'test-agent' (Devin CLI) with 2 capabilities", $result->toArray()['content'][0]['text']);
         $hset = $resp->calls[2];
         $this->assertSame('HSET', $hset[0]);
         $flat = array_search('registered_at', $hset, true);
@@ -59,7 +60,8 @@ class AgentToolsTest extends TestCase {
         $couch = new FakeCouch([]);
         $resp = new FakeRespClient([1, 4]); // SADD, HSET
         $result = $this->tools($resp, $couch)->agent_heartbeat('T-9');
-        $this->assertSame('test-agent', $result['agent']);
+        $this->assertSame('test-agent', $result->getStructuredContent()['agent']);
+        $this->assertStringContainsString('working on: T-9', $result->toArray()['content'][0]['text']);
         $hset = $resp->calls[1];
         $this->assertSame('working_on', $hset[4]);
         $this->assertSame('T-9', $hset[5]);

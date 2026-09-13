@@ -28,9 +28,10 @@ class BoardTools {
     #[McpTool(
         name: 'blackboard_write',
         renamedFrom: 'bb_write',
-        description: 'Write a blackboard entry under a scope (default: global). Value may be any JSON value. Existing keys are overwritten with MVCC protection.'
+        description: 'Write a blackboard entry under a scope (default: global). Value may be any JSON value. Existing keys are overwritten with MVCC protection.',
+        outputSchema: self::WRITE_SCHEMA
     )]
-    public function blackboard_write(string $key, mixed $value, ?string $scope = null): array {
+    public function blackboard_write(string $key, mixed $value, ?string $scope = null): ToolResult {
         $board = $this->scopeOf($scope);
         $existing = $this->storage->loadBoardEntry($board, $key);
         $entry = [
@@ -40,8 +41,20 @@ class BoardTools {
         ];
         $wrote = $this->storage->saveBoardEntry($board, $key, $entry, $existing['_rev'] ?? null);
         $this->storage->appendLog(CONTINUUM_AGENT, 'blackboard_write', ['scope' => $board, 'key' => $key]);
-        return ['scope' => $board, 'key' => $key, 'rev' => $wrote['rev'], 'updated_by' => CONTINUUM_AGENT];
+        $data = ['scope' => $board, 'key' => $key, 'rev' => $wrote['rev'], 'updated_by' => CONTINUUM_AGENT];
+        return ToolResult::structured("Wrote {$board}/{$key} (rev {$wrote['rev']}).", $data);
     }
+
+    private const WRITE_SCHEMA = [
+        'type' => 'object',
+        'properties' => [
+            'scope' => ['type' => 'string'],
+            'key' => ['type' => 'string'],
+            'rev' => ['type' => 'string'],
+            'updated_by' => ['type' => 'string'],
+        ],
+        'required' => ['scope', 'key', 'rev', 'updated_by'],
+    ];
 
     /**
      * Read a board entry.
@@ -123,9 +136,10 @@ class BoardTools {
         renamedFrom: 'bb_delete',
         description: 'Delete a blackboard entry. Restricted to the entry author or the agent that owns the scope.',
         destructiveHint: true,
-        idempotentHint: false
+        idempotentHint: false,
+        outputSchema: self::DELETE_SCHEMA
     )]
-    public function blackboard_delete(string $key, ?string $scope = null): array {
+    public function blackboard_delete(string $key, ?string $scope = null): ToolResult {
         $board = $this->scopeOf($scope);
         $entry = $this->storage->loadBoardEntry($board, $key);
         if ($entry === null) {
@@ -137,6 +151,16 @@ class BoardTools {
         }
         $this->storage->deleteBoardEntry($board, $key, $entry['_rev']);
         $this->storage->appendLog(CONTINUUM_AGENT, 'blackboard_delete', ['scope' => $board, 'key' => $key]);
-        return ['scope' => $board, 'key' => $key, 'deleted' => true];
+        return ToolResult::structured("Deleted {$board}/{$key}.", ['scope' => $board, 'key' => $key, 'deleted' => true]);
     }
+
+    private const DELETE_SCHEMA = [
+        'type' => 'object',
+        'properties' => [
+            'scope' => ['type' => 'string'],
+            'key' => ['type' => 'string'],
+            'deleted' => ['type' => 'boolean'],
+        ],
+        'required' => ['scope', 'key', 'deleted'],
+    ];
 }

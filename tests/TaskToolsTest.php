@@ -25,9 +25,11 @@ class TaskToolsTest extends TestCase {
         foreach (['task_create', 'task_list', 'task_claim', 'task_update_status', 'task_handoff'] as $tool) {
             $this->assertTrue($registry->hasTool($tool), "missing tool {$tool}");
         }
-        // the read tool advertises its structured-output schema
+        // every task tool advertises its structured-output schema
         $defs = array_column($registry->listTools(), null, 'name');
-        $this->assertNotEmpty($defs['task_list']['outputSchema'] ?? null);
+        foreach (['task_create', 'task_list', 'task_claim', 'task_update_status', 'task_handoff'] as $tool) {
+            $this->assertNotEmpty($defs[$tool]['outputSchema'] ?? null, "missing outputSchema on {$tool}");
+        }
     }
 
     public function testListReturnsDualFormatWithPhorgeId(): void {
@@ -55,11 +57,14 @@ class TaskToolsTest extends TestCase {
             ['code' => 201, 'body' => ['id' => 'ev1', 'rev' => '1-b']],             // PUT event
         ]);
         $result = (new TaskTools($this->storage($couch, $resp, $arcade)))->task_create('Demo', 'proj', dependsOn: ['T-PARENT']);
-        $this->assertMatchesRegularExpression('/^T-[0-9A-F]{8}$/', $result['task']);
-        $this->assertSame('pending', $result['status']);
-        $this->assertSame('proj', $result['scope']);
+        $data = $result->getStructuredContent();
+        $this->assertMatchesRegularExpression('/^T-[0-9A-F]{8}$/', $data['task']);
+        $this->assertSame('pending', $data['status']);
+        $this->assertSame('proj', $data['scope']);
+        // text block: human-first one-liner
+        $this->assertStringContainsString('Created task: Demo [pending, p2]', $result->toArray()['content'][0]['text']);
         // durable doc + graph vertex + dependency edge
-        $this->assertSame('continuum_tasks/' . $result['task'], $couch->calls[0]['path']);
+        $this->assertSame('continuum_tasks/' . $data['task'], $couch->calls[0]['path']);
         $commands = array_column(array_column($arcade->calls, 'body'), 'command');
         $this->assertStringContainsString('UPDATE Task', implode("\n", $commands));
         $this->assertStringContainsString('DEPENDS_ON', implode("\n", $commands));
@@ -76,7 +81,7 @@ class TaskToolsTest extends TestCase {
             ['code' => 201, 'body' => ['id' => 'ev2', 'rev' => '1-x']],
         ]);
         $result = (new TaskTools($this->storage($couch)))->task_create('Retry');
-        $this->assertMatchesRegularExpression('/^T-[0-9A-F]{8}$/', $result['task']);
+        $this->assertMatchesRegularExpression('/^T-[0-9A-F]{8}$/', $result->getStructuredContent()['task']);
         $this->assertCount(4, $couch->calls);
     }
 
@@ -94,7 +99,7 @@ class TaskToolsTest extends TestCase {
             ['code' => 200, 'body' => ['uuids' => ['ev2']]],
             ['code' => 201, 'body' => ['id' => 'ev2', 'rev' => '1-x']],
         ]);
-        $result = (new TaskTools($this->storage($couch, $resp, $arcade)))->task_claim('T-1');
+        $result = (new TaskTools($this->storage($couch, $resp, $arcade)))->task_claim('T-1')->getStructuredContent();
         $this->assertSame('claimed', $result['status']);
         $this->assertSame('test-agent', $result['owner']);
         // MVCC rev supplied on the claim write
@@ -139,8 +144,11 @@ class TaskToolsTest extends TestCase {
         ]);
         $answer = ['action' => 'accept', 'content' => ['approve' => true]];
         $result = (new TaskTools($this->storage($couch, new FakeRespClient([]), $arcade)))->task_claim('T-1', $answer);
-        $this->assertSame('claimed', $result['status']);
-        $this->assertSame('test-agent', $result['owner']);
+        $data = $result->getStructuredContent();
+        $this->assertSame('claimed', $data['status']);
+        $this->assertSame('test-agent', $data['owner']);
+        // text block attributes the steal
+        $this->assertStringContainsString('Stole claim from alice:', $result->toArray()['content'][0]['text']);
         // prior claim edge removed, event logged as a steal with attribution
         $deletes = array_filter(array_column(array_column($arcade->calls, 'body'), 'command') , fn($c) => is_string($c) && str_contains($c, 'DELETE'));
         $this->assertNotEmpty($deletes);
@@ -176,8 +184,10 @@ class TaskToolsTest extends TestCase {
             ['code' => 201, 'body' => ['id' => 'ev3', 'rev' => '1-x']],
         ]);
         $result = (new TaskTools($this->storage($couch, null, $arcade)))->task_update_status('T-1', 'done', 'finished');
-        $this->assertSame('done', $result['status']);
-        $this->assertNull($result['owner']);
+        $data = $result->getStructuredContent();
+        $this->assertSame('done', $data['status']);
+        $this->assertNull($data['owner']);
+        $this->assertStringContainsString('— note recorded', $result->toArray()['content'][0]['text']);
         // note recorded on the doc
         $this->assertSame('finished', $couch->calls[1]['data']['notes'][0]['text']);
         // CLAIMED_BY edge removed (matched on the edge's task property)
@@ -203,8 +213,11 @@ class TaskToolsTest extends TestCase {
             ['code' => 201, 'body' => ['id' => 'ev4', 'rev' => '1-x']],
         ]);
         $result = (new TaskTools($this->storage($couch, $resp)))->task_handoff('T-1', 'halfway there', 'finish parsing');
-        $this->assertSame('pending', $result['status']);
-        $this->assertNull($result['owner']);
+        $data = $result->getStructuredContent();
+        $this->assertSame('pending', $data['status']);
+        $this->assertNull($data['owner']);
+        $this->assertStringContainsString('Handed off', $result->toArray()['content'][0]['text']);
+        $this->assertStringContainsString('halfway there', $result->toArray()['content'][0]['text']);
         $this->assertSame('halfway there', $couch->calls[1]['data']['handoffs'][0]['summary']);
         $keys = array_map(fn($c) => $c[1] ?? '', $resp->calls);
         $this->assertContains('continuum:queue:proj', $keys);

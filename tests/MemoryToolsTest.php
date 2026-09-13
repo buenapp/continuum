@@ -31,8 +31,10 @@ class MemoryToolsTest extends TestCase {
     public function testNoteSuccessPath(): void {
         $bridge = new FakeHeliofaneBridge([['ok' => true, 'result' => [], 'error' => null]]);
         $result = $this->tools($bridge)->promote_to_memory('Project X', ['fact one', 'fact two']);
-        $this->assertSame(2, $result['promoted']);
-        $this->assertFalse($result['created']);
+        $data = $result->getStructuredContent();
+        $this->assertSame(2, $data['promoted']);
+        $this->assertFalse($data['created']);
+        $this->assertStringContainsString("Promoted 2 facts to memory for 'Project X'", $result->toArray()['content'][0]['text']);
         $this->assertSame('note', $bridge->calls[0]['tool']);
         $this->assertSame(['fact one', 'fact two'], $bridge->calls[0]['arguments']['observations']);
     }
@@ -43,7 +45,8 @@ class MemoryToolsTest extends TestCase {
             ['ok' => true, 'result' => [], 'error' => null],
         ]);
         $result = $this->tools($bridge)->promote_to_memory('New Thing', ['born today'], 'project');
-        $this->assertTrue($result['created']);
+        $this->assertTrue($result->getStructuredContent()['created']);
+        $this->assertStringContainsString('(entity created)', $result->toArray()['content'][0]['text']);
         $this->assertSame('remember', $bridge->calls[1]['tool']);
         $this->assertSame('New Thing', $bridge->calls[1]['arguments']['entities'][0]['name']);
         $this->assertSame('project', $bridge->calls[1]['arguments']['entities'][0]['entityType']);
