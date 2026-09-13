@@ -52,4 +52,3 @@
 %%WWWDIR%%/public/index.php
 %%WWWDIR%%/system/app.conf.php
 %%WWWDIR%%/system/autoload.inc.php
-%%PORTEXAMPLES%%%%EXAMPLESDIR%%/continuum.conf.sample
