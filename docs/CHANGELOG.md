@@ -15,7 +15,7 @@ introduces them (see AGENTS.md). Version parity is enforced between
   - `message_send` / `message_inbox_pull` / `message_broadcast` —
     per-agent inboxes with a destructive-read pull model; broadcast
     skips the sender and logs the recipient count.
-  - `event_log` — read the append-only audit trail, newest first, with
+  - `coordination_event_log` — read the append-only audit trail, newest first, with
     `type` / `scope` / `since` filters and a limit.
   - `board_status` — whole-board snapshot: agents with last-seen, open
     tasks with owners, held locks (enumerate via ValKey SCAN), board

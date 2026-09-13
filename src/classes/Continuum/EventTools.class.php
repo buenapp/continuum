@@ -14,11 +14,12 @@ class EventTools {
     public function __construct(private ContinuumStorage $storage) {}
 
     #[McpTool(
-        name: 'event_log',
-        description: 'Read the append-only event log, newest first. Filter by event type (task_claim, blackboard_write, ...), scope, and/or an ISO-8601 `since` timestamp.',
+        name: 'coordination_event_log',
+        renamedFrom: 'event_log',
+        description: 'Read the coordination board\'s append-only event log (every task/board/lock/message mutation), newest first. Filter by event type (task_claim, blackboard_write, ...), scope, and/or an ISO-8601 `since` timestamp.',
         readOnlyHint: true
     )]
-    public function event_log(?string $since = null, int $limit = 50, ?string $type = null, ?string $scope = null): array {
+    public function coordination_event_log(?string $since = null, int $limit = 50, ?string $type = null, ?string $scope = null): array {
         $events = [];
         foreach ($this->storage->listEventDocs() as $id => $doc) {
             if ($type !== null && ($doc['type'] ?? null) !== $type) { continue; }

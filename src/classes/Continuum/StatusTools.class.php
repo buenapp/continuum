@@ -71,7 +71,7 @@ class StatusTools {
             'locks' => $this->storage->listLocks(),
             'boards' => $boards,
             'queues' => $queues,
-            'recent_events' => (new EventTools($this->storage))->event_log(null, 10)['events'],
+            'recent_events' => (new EventTools($this->storage))->coordination_event_log(null, 10)['events'],
         ];
     }
 }

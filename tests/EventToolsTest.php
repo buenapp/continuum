@@ -25,19 +25,19 @@ class EventToolsTest extends TestCase {
             $this->row('E2', ['agent' => 'devin', 'type' => 'blackboard_write', 'ts' => '2026-09-13T03:00:00.000Z', 'data' => ['scope' => 'proj', 'key' => 'k']]),
             $this->row('E3', ['agent' => 'devin', 'type' => 'task_claim', 'ts' => '2026-09-13T02:00:00.000Z', 'data' => ['task' => 'T-2', 'scope' => 'ops']]),
         ]]]]);
-        $all = $this->tools($couch)->event_log();
+        $all = $this->tools($couch)->coordination_event_log();
         $this->assertSame(['E2', 'E3', 'E1'], array_column($all['events'], 'id'));
         // filter by type
-        $claims = $this->tools($couch->replay())->event_log(type: 'task_claim');
+        $claims = $this->tools($couch->replay())->coordination_event_log(type: 'task_claim');
         $this->assertSame(2, $claims['count']);
         // filter by scope
-        $scoped = $this->tools($couch->replay())->event_log(scope: 'ops');
+        $scoped = $this->tools($couch->replay())->coordination_event_log(scope: 'ops');
         $this->assertSame(['E3'], array_column($scoped['events'], 'id'));
         // since filter is an ISO-8601 lower bound
-        $recent = $this->tools($couch->replay())->event_log(since: '2026-09-13T02:30:00.000Z');
+        $recent = $this->tools($couch->replay())->coordination_event_log(since: '2026-09-13T02:30:00.000Z');
         $this->assertSame(['E2'], array_column($recent['events'], 'id'));
         // limit clips, total reports pre-clip count
-        $clipped = $this->tools($couch->replay())->event_log(limit: 2);
+        $clipped = $this->tools($couch->replay())->coordination_event_log(limit: 2);
         $this->assertSame(2, $clipped['count']);
         $this->assertSame(3, $clipped['total']);
     }
