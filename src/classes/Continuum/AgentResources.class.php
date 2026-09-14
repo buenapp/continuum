@@ -69,11 +69,22 @@ class AgentResources {
         if (is_string($capabilities)) {
             $capabilities = json_decode($capabilities, true);
         }
+        $sessions = [];
+        foreach ((array)($record['sessions'] ?? []) as $sid => $srec) {
+            $sHb = isset($srec['heartbeat']) ? (int)$srec['heartbeat'] : null;
+            $sessions[] = [
+                'session' => $sid,
+                'working_on' => $srec['working_on'] ?? null,
+                'registered_at' => $srec['registered_at'] ?? null,
+                'last_seen_seconds_ago' => $sHb !== null ? time() - $sHb : null,
+            ];
+        }
         return [
             'agent' => $id,
             'label' => $record['label'] ?? null,
             'capabilities' => $capabilities,
             'working_on' => $record['working_on'] ?? null,
+            'sessions' => $sessions,
             'registered_at' => $record['registered_at'] ?? null,
             'last_seen_at' => $heartbeat !== null ? gmdate('c', $heartbeat) : null,
             'last_seen_seconds_ago' => $heartbeat !== null ? time() - $heartbeat : null,

@@ -38,6 +38,8 @@ use Continuum\Bridge\HeliofaneMcpBridge;
 
 // stdio has no transport auth; attribute everything to a fixed identity.
 defined('CONTINUUM_AGENT') || define('CONTINUUM_AGENT', 'stdio');
+// One stdio process is one session; scope presence by pid.
+\Continuum\SessionContext::set('stdio-' . getmypid());
 
 $server = new McpServer(APPLICATION_NAME, APPLICATION_VERSION);
 

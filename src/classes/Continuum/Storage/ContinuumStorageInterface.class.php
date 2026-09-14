@@ -26,9 +26,11 @@ interface ContinuumStorageInterface {
     public function forceReleaseLock(string $name): bool;
     public function checkLock(string $name): ?array;
     public function heartbeat(string $agentId, array $meta = []): void;
+    public function sessionHeartbeat(string $agentId, string $sessionId, array $meta = []): void;
+    public function sessionRecords(string $agentId): array;   // sessionId => record (live only)
     public function agents(): array;
-    public function presence(): array;   // agentId => heartbeat ts
-    public function agentDirectory(): array;   // agentId => presence record
+    public function presence(): array;   // agentId => newest beat across identity + sessions
+    public function agentDirectory(): array;   // agentId => presence record with 'sessions'
     public function inboxPush(string $agentId, array $message): int;
     public function inboxDrain(string $agentId): array;
     public function inboxPull(string $agentId, int $limit): array;

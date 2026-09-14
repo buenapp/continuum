@@ -115,22 +115,42 @@ class ContinuumStorage implements ContinuumStorageInterface {
             $this->publishChanges(['continuum://agents', "continuum://agents/{$agentId}"]);
         }
     }
+    /** Session-scoped presence record; TTL-refreshed per beat. */
+    public function sessionHeartbeat(string $agentId, string $sessionId, array $meta = []): void {
+        $this->valkey->sessionHeartbeat($agentId, $sessionId, $meta);
+        if ($meta !== []) {
+            $this->publishChanges(['continuum://agents', "continuum://agents/{$agentId}"]);
+        }
+    }
+    /** Live session records for an agent (expired cards pruned on read). */
+    public function sessionRecords(string $agentId): array {
+        return $this->valkey->sessionRecords($agentId);
+    }
     public function agents(): array {
         return $this->valkey->agents();
     }
-    /** Registered agents with their last heartbeat unix timestamp. */
+    /** Registered agents with their newest heartbeat unix timestamp. */
     public function presence(): array {
         $out = [];
         foreach ($this->valkey->agents() as $agentId) {
-            $out[$agentId] = $this->valkey->agentHeartbeatTime($agentId);
+            $out[$agentId] = $this->valkey->lastSeen($agentId);
         }
         return $out;
     }
-    /** Registered agents with their full presence records (meta + heartbeat). */
+    /** Registered agents with their full presence records (meta + heartbeat + sessions). */
     public function agentDirectory(): array {
         $out = [];
         foreach ($this->valkey->agents() as $agentId) {
-            $out[$agentId] = $this->valkey->agentRecord($agentId) ?? [];
+            $record = $this->valkey->agentRecord($agentId) ?? [];
+            $sessions = $this->valkey->sessionRecords($agentId);
+            $record['sessions'] = $sessions;
+            $ts = $this->valkey->agentHeartbeatTime($agentId);
+            foreach ($sessions as $rec) {
+                $sTs = isset($rec['heartbeat']) ? (int)$rec['heartbeat'] : null;
+                if ($sTs !== null) { $ts = max($ts ?? 0, $sTs); }
+            }
+            if ($ts !== null) { $record['heartbeat'] = (string)$ts; }
+            $out[$agentId] = $record;
         }
         return $out;
     }

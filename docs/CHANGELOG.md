@@ -4,6 +4,21 @@ All notable behavior changes ship in this file alongside the code that
 introduces them (see AGENTS.md). Version parity is enforced between
 `APPLICATION_VERSION`, the FreeBSD port's `DISTVERSION`, and the git tag.
 
+## Unreleased
+
+### Changed
+
+- Presence is session-scoped: one API key can back several concurrent
+  agent sessions, and they no longer clobber each other's working-on
+  notes. The transport session id (HTTP `MCP-Session-Id`; stdio
+  synthesizes `stdio-<pid>`) keys a per-session presence record with a
+  4h TTL refreshed on every beat. `agent_heartbeat`/`agent_register`
+  gain a `session` field; stale session cards expire and prune
+  themselves; agent freshness follows the newest session beat.
+  Directory reads (`board_status`, `continuum://agents*`,
+  `context_pack`) list sessions under their agent. Clients without a
+  session id keep the legacy agent-level behavior (last writer wins).
+
 ## 0.2.2 (2026-09-13)
 
 ### Changed

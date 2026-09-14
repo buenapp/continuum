@@ -15,6 +15,7 @@
 %%WWWDIR%%/classes/Continuum/MemoryTools.class.php
 %%WWWDIR%%/classes/Continuum/MessageTools.class.php
 %%WWWDIR%%/classes/Continuum/ServerTools.class.php
+%%WWWDIR%%/classes/Continuum/SessionContext.class.php
 %%WWWDIR%%/classes/Continuum/StatusTools.class.php
 %%WWWDIR%%/classes/Continuum/SubscriptionFeed.class.php
 %%WWWDIR%%/classes/Continuum/TaskResources.class.php

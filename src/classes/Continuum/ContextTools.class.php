@@ -141,13 +141,20 @@ class ContextTools {
             }
         }
 
-        // Agent presence
-        $presence = $this->storage->presence();
-        if (!empty($presence)) {
+        // Agent presence (identity + per-session working-on)
+        $directory = $this->storage->agentDirectory();
+        if (!empty($directory)) {
             $emit("\n## Agents");
-            foreach ($presence as $agentId => $ts) {
+            foreach ($directory as $agentId => $record) {
+                $ts = isset($record['heartbeat']) && $record['heartbeat'] !== '' ? (int)$record['heartbeat'] : null;
                 $age = $ts === null ? 'no heartbeat' : (time() - $ts) . 's ago';
-                $emit('- ' . $agentId . ' (last seen ' . $age . ')');
+                $sessions = [];
+                foreach ((array)($record['sessions'] ?? []) as $sid => $srec) {
+                    $sAge = isset($srec['heartbeat']) ? (time() - (int)$srec['heartbeat']) . 's ago' : 'never';
+                    $sessions[] = substr($sid, 0, 8) . ': ' . ($srec['working_on'] ?? 'idle') . " ({$sAge})";
+                }
+                $emit('- ' . $agentId . ' (last seen ' . $age . ')'
+                    . ($sessions ? ' — sessions: ' . implode('; ', $sessions) : ''));
             }
         }
 

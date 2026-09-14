@@ -49,6 +49,18 @@ Tool naming: explicit snake_case nouns, spelled out (no `bb_`, `msg_`,
 bare `lock_`). Qualify when the plain word lies about the contract
 (e.g. `advisory_lock_` for cooperation-based TTL locks).
 
+### Presence and sessions
+
+Identity comes from the API key, and one key may back several
+concurrent agent sessions. Presence is therefore **session-scoped**:
+the transport session id (`MCP-Session-Id` over HTTP; `stdio-<pid>` for
+stdio) keys a working-on record per session (4h TTL, refreshed per
+beat), while the agent record holds identity meta (label, capabilities,
+registered-at) and the newest beat across sessions. Directory views
+(`board_status`, `continuum://agents`, `context_pack`) list sessions
+under their agent. Session-less legacy clients keep last-writer-wins
+agent-level behavior.
+
 ## Terminology
 
 Two different "task" concepts exist in this space; keep them separate in

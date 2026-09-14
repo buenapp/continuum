@@ -73,6 +73,11 @@ if ($agentName === null) {
 }
 define('CONTINUUM_AGENT', $agentName);
 
+// One API key may back several concurrent sessions: presence records are
+// scoped by the transport session id so their working-on notes do not
+// clobber each other (initialize itself arrives session-less).
+\Continuum\SessionContext::set($_SERVER['HTTP_MCP_SESSION_ID'] ?? null);
+
 // Create server and register tools
 $server = new McpServer(APPLICATION_NAME, APPLICATION_VERSION);
 

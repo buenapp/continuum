@@ -28,6 +28,8 @@ class StatusToolsTest extends TestCase {
         $resp = new FakeRespClient([
             ['alice'],                                                        // SMEMBERS agents
             ['heartbeat', (string)(time() - 42), 'working_on', 'parser', 'capabilities', '["php"]'], // HGETALL alice
+            [],                                                               // SMEMBERS agent-sessions:alice
+            (string)(time() - 42),                                            // HGET heartbeat alice
             1,                                                                // LLEN queue:proj
             ['0', ['continuum:lock:build']],                                  // SCAN
             'alice',                                                          // GET lock:build
@@ -71,6 +73,35 @@ class StatusToolsTest extends TestCase {
         $this->assertStringContainsString('## Open tasks (1)', $text);
         $this->assertStringContainsString('- Fix [claimed, p1, @alice] (T-1)', $text);
         $this->assertStringContainsString('- build — alice (30000ms TTL)', $text);
+    }
+
+    public function testAgentsIncludeSessionRecords(): void {
+        $now = time();
+        $resp = new FakeRespClient([
+            ['alice'],                                                        // SMEMBERS agents
+            ['heartbeat', (string)($now - 300)],                              // HGETALL alice (stale identity beat)
+            ['aaaaaaaa111122223333'],                                         // SMEMBERS agent-sessions:alice
+            ['agent', 'alice', 'session', 'aaaaaaaa111122223333', 'heartbeat', (string)($now - 10), 'working_on', 'dual format'], // HGETALL session
+            (string)($now - 300),                                             // HGET heartbeat alice
+            ['0', []],                                                        // SCAN (no locks)
+        ]);
+        $couch = new FakeCouch([
+            ['code' => 200, 'body' => ['rows' => []]],                        // tasks
+            ['code' => 200, 'body' => ['rows' => []]],                        // boards
+            ['code' => 200, 'body' => ['rows' => []]],                        // events
+        ]);
+        $result = $this->tools($resp, $couch)->board_status();
+        $agent = $result->getStructuredContent()['agents'][0];
+        $this->assertCount(1, $agent['sessions']);
+        $this->assertSame('aaaaaaaa111122223333', $agent['sessions'][0]['session']);
+        $this->assertSame('dual format', $agent['sessions'][0]['working_on']);
+        // freshness follows the newest session beat, not the stale identity one
+        $this->assertLessThan(20, $agent['last_seen_s_ago']);
+        // text rendering lists the session under the agent
+        $text = $result->toArray()['content'][0]['text'];
+        $this->assertStringContainsString('1 session(s)', $text);
+        $this->assertStringContainsString('aaaaaaaa', $text);
+        $this->assertStringContainsString('— dual format', $text);
     }
 
     public function testEmptyBoardIsGraceful(): void {

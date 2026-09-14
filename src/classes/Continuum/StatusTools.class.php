@@ -27,11 +27,22 @@ class StatusTools {
         $agents = [];
         foreach ($this->storage->agentDirectory() as $agentId => $record) {
             $ts = isset($record['heartbeat']) ? (int)$record['heartbeat'] : null;
+            $sessions = [];
+            foreach ((array)($record['sessions'] ?? []) as $sid => $srec) {
+                $sTs = isset($srec['heartbeat']) ? (int)$srec['heartbeat'] : null;
+                $sessions[] = [
+                    'session' => $sid,
+                    'working_on' => $srec['working_on'] ?? null,
+                    'last_seen_s_ago' => $sTs === null ? null : $now - $sTs,
+                ];
+            }
+            usort($sessions, fn($a, $b) => ($a['last_seen_s_ago'] ?? PHP_INT_MAX) <=> ($b['last_seen_s_ago'] ?? PHP_INT_MAX));
             $agents[] = [
                 'agent' => $agentId,
                 'label' => $record['label'] ?? null,
                 'capabilities' => isset($record['capabilities']) ? json_decode($record['capabilities'], true) : null,
                 'working_on' => $record['working_on'] ?? null,
+                'sessions' => $sessions,
                 'last_seen_s_ago' => $ts === null ? null : $now - $ts,
                 'registered_at' => $record['registered_at'] ?? null,
             ];
@@ -87,7 +98,14 @@ class StatusTools {
             $line = '- ' . $a['agent'] . ($a['label'] ? " ({$a['label']})" : '');
             $line .= $a['last_seen_s_ago'] === null ? ', no heartbeat' : ", last seen {$a['last_seen_s_ago']}s ago";
             if ($a['working_on']) { $line .= ", working on: {$a['working_on']}"; }
+            if ($a['sessions']) { $line .= ' — ' . count($a['sessions']) . ' session(s)'; }
             $lines[] = $line;
+            foreach ($a['sessions'] as $s) {
+                $sub = '  - ' . substr($s['session'], 0, 8);
+                $sub .= $s['last_seen_s_ago'] === null ? '' : " ({$s['last_seen_s_ago']}s ago)";
+                if ($s['working_on']) { $sub .= " — {$s['working_on']}"; }
+                $lines[] = $sub;
+            }
         }
         if (!$d['agents']) { $lines[] = '(none)'; }
         $lines[] = '';
@@ -128,10 +146,19 @@ class StatusTools {
                     'label' => ['type' => ['string', 'null']],
                     'capabilities' => true,
                     'working_on' => ['type' => ['string', 'null']],
+                    'sessions' => ['type' => 'array', 'items' => [
+                        'type' => 'object',
+                        'properties' => [
+                            'session' => ['type' => 'string'],
+                            'working_on' => ['type' => ['string', 'null']],
+                            'last_seen_s_ago' => ['type' => ['integer', 'null']],
+                        ],
+                        'required' => ['session', 'working_on', 'last_seen_s_ago'],
+                    ]],
                     'last_seen_s_ago' => ['type' => ['integer', 'null']],
                     'registered_at' => ['type' => ['string', 'null']],
                 ],
-                'required' => ['agent', 'label', 'capabilities', 'working_on', 'last_seen_s_ago', 'registered_at'],
+                'required' => ['agent', 'label', 'capabilities', 'working_on', 'sessions', 'last_seen_s_ago', 'registered_at'],
             ]],
             'open_tasks' => ['type' => 'array', 'items' => [
                 'type' => 'object',

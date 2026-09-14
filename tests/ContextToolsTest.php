@@ -46,7 +46,12 @@ class ContextToolsTest extends TestCase {
             ['result' => [['id' => 'T-1', 'title' => 'Parent', 'status' => 'done']]],
             ['result' => [['id' => 'T-10', 'title' => 'Followup', 'status' => 'pending']]],
         ]);
-        $resp = new FakeRespClient([['devin'], '1757729800']);
+        $resp = new FakeRespClient([
+            ['devin'],                            // SMEMBERS agents
+            ['heartbeat', '1757729800'],          // HGETALL devin
+            [],                                   // SMEMBERS agent-sessions:devin
+            '1757729800',                         // HGET heartbeat devin
+        ]);
         $result = $this->tools($couch, $resp, $arcade)->context_pack('proj', 'T-9');
         $pack = $result->getStructuredContent()['pack'];
         $this->assertStringContainsString('## Focus: Fix parser [in_progress] (T-9)', $pack);

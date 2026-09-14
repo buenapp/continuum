@@ -11,6 +11,8 @@ namespace Continuum\Storage;
  *   lock:{name}              STR   advisory lock; value = owner; TTL enforced
  *   agent:{id}               HASH  presence record (heartbeat timestamp, meta)
  *   agents                   SET   registered agent ids
+ *   session:{agent}:{sid}    HASH  session-scoped presence (TTL-refreshed)
+ *   agent-sessions:{agent}   SET   session ids seen for an agent
  *   inbox:{agentId}          LIST  inbound messages (JSON)
  *   signal:{channel}         PUBSUB channels (no persistence)
  */
@@ -18,6 +20,9 @@ class ValKeyStore {
 
     private const NS = 'continuum:';
     private const LOCK_RELEASE_LUA = 'if redis.call("get",KEYS[1]) == ARGV[1] then return redis.call("del",KEYS[1]) else return 0 end';
+
+    /** Stale session cards vanish after this many idle seconds. */
+    private const SESSION_TTL = 14400;
 
     private RespClient $client;
 
@@ -100,6 +105,49 @@ class ValKeyStore {
         $this->client->command('HSET', ...$args);
     }
 
+    /**
+     * Session-scoped presence record. One API key can back several
+     * concurrent sessions; each gets its own hash so concurrent agents
+     * sharing an identity do not clobber each other's working-on state.
+     * Records expire when unrefreshed; membership prunes on read.
+     */
+    public function sessionHeartbeat(string $agentId, string $sessionId, array $meta = []): void {
+        $key = self::NS . 'session:' . $agentId . ':' . $sessionId;
+        $args = [$key, 'agent', $agentId, 'session', $sessionId, 'heartbeat', (string)time()];
+        foreach ($meta as $k => $v) { $args[] = (string)$k; $args[] = is_string($v) ? $v : json_encode($v); }
+        $this->client->command('HSET', ...$args);
+        $this->client->command('EXPIRE', $key, (string)self::SESSION_TTL);
+        $this->client->command('SADD', self::NS . 'agent-sessions:' . $agentId, $sessionId);
+    }
+
+    /** Live session records for an agent: sessionId => record. */
+    public function sessionRecords(string $agentId): array {
+        $set = self::NS . 'agent-sessions:' . $agentId;
+        $out = [];
+        foreach ($this->client->command('SMEMBERS', $set) ?: [] as $sid) {
+            $fields = $this->client->command('HGETALL', self::NS . 'session:' . $agentId . ':' . $sid) ?: [];
+            if (count($fields) < 2) {
+                // hash expired since membership was recorded; drop the ghost
+                $this->client->command('SREM', $set, $sid);
+                continue;
+            }
+            $record = [];
+            for ($i = 0; $i + 1 < count($fields); $i += 2) { $record[$fields[$i]] = $fields[$i + 1]; }
+            $out[$sid] = $record;
+        }
+        return $out;
+    }
+
+    /** Newest heartbeat across the agent record and its live sessions. */
+    public function lastSeen(string $agentId): ?int {
+        $ts = $this->agentHeartbeatTime($agentId);
+        foreach ($this->sessionRecords($agentId) as $rec) {
+            $sessionTs = isset($rec['heartbeat']) ? (int)$rec['heartbeat'] : null;
+            if ($sessionTs !== null) { $ts = max($ts ?? 0, $sessionTs); }
+        }
+        return $ts;
+    }
+
     public function agentHeartbeatTime(string $agentId): ?int {
         $ts = $this->client->command('HGET', self::NS . 'agent:' . $agentId, 'heartbeat');
         return ($ts === null || $ts === false) ? null : (int)$ts;
@@ -150,6 +198,11 @@ class ValKeyStore {
     }
 
     public function deregisterAgent(string $agentId): void {
+        $set = self::NS . 'agent-sessions:' . $agentId;
+        foreach ($this->client->command('SMEMBERS', $set) ?: [] as $sid) {
+            $this->client->command('DEL', self::NS . 'session:' . $agentId . ':' . $sid);
+        }
+        $this->client->command('DEL', $set);
         $this->client->command('SREM', self::NS . 'agents', $agentId);
         $this->client->command('DEL', self::NS . 'agent:' . $agentId);
     }
