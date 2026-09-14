@@ -4,7 +4,7 @@ All notable behavior changes ship in this file alongside the code that
 introduces them (see AGENTS.md). Version parity is enforced between
 `APPLICATION_VERSION`, the FreeBSD port's `DISTVERSION`, and the git tag.
 
-## Unreleased
+## 0.2.4 (2026-09-14)
 
 ### Changed
 
