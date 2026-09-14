@@ -4,6 +4,17 @@ All notable behavior changes ship in this file alongside the code that
 introduces them (see AGENTS.md). Version parity is enforced between
 `APPLICATION_VERSION`, the FreeBSD port's `DISTVERSION`, and the git tag.
 
+## Unreleased
+
+### Changed
+
+- Server instructions now steer human-facing presentation: task tables
+  and summaries should lead with title/scope/status (and the linked
+  Phorge id), with internal `T-XXXXXXXX` coordination ids included only
+  when asked or when another agent will act on them. The instruction
+  ships in the MCP `initialize` handshake, so every connected model
+  receives it regardless of which tools it calls.
+
 ## 0.2.3 (2026-09-13)
 
 ### Changed

@@ -107,6 +107,7 @@ check('health probe', $code === 200 && ($health['status'] ?? '') === 'ok', "HTTP
 $init = rpc('initialize', ['protocolVersion' => '2025-11-25', 'capabilities' => ['elicitation' => new stdClass()], 'clientInfo' => ['name' => 'smoke-test', 'version' => '0.1']], $KEY);
 $caps = $init['result']['capabilities'] ?? [];
 check('initialize', isset($caps['tools'], $caps['resources'], $caps['prompts'], $caps['completions']), json_encode(array_keys($caps)));
+check('initialize ships server instructions', str_contains($init['result']['instructions'] ?? '', 'coordination blackboard'));
 
 // --- 3. server/discover (era probe works on any shape)
 $discover = rpcModern('server/discover', [], $KEY);

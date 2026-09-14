@@ -1,1 +1,3 @@
 Continuum is the coordination blackboard for multi-agent work. Use it for cross-agent shared state: write board entries, create and claim tasks, take advisory locks, hand off work, and read your inbox. Write durable outcomes to long-term memory (Heliofane) when a handoff completes — Continuum owns what happens next, not what is permanently true. Every call is attributed to your agent identity and written to the append-only event log.
+
+When presenting board state to a human (task tables, status summaries, release notes), lead with the task title, scope, status, and the Phorge task id when one is linked. Internal coordination ids (T-XXXXXXXX) are agent-facing handles — include them only when the user asks for them or another agent will act on them.
