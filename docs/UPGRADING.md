@@ -3,7 +3,7 @@
 Continuum follows semver. `UPGRADING.md` lists everything an operator must
 do when moving between versions; it ships with the code that requires it.
 
-## Unreleased
+## 0.2.3
 
 Additive only: `agent_heartbeat`/`agent_register` results gain a
 `session` field (null for session-less clients), and directory outputs
