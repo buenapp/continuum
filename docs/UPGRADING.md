@@ -3,6 +3,11 @@
 Continuum follows semver. `UPGRADING.md` lists everything an operator must
 do when moving between versions; it ships with the code that requires it.
 
+## 0.2.5
+
+No operator action. Tool descriptions only; no protocol, setting, or schema
+changes.
+
 ## 0.2.4
 
 No operator action. The packaged server instructions now steer agent-level
