@@ -32,7 +32,7 @@ class ContextTools {
 
     #[McpTool(
         name: 'context_pack',
-        description: 'Return a curated, ranked, token-budgeted brief of the blackboard: focused task (if any) with dependencies, open tasks in scope, recent board entries, and agent presence. Prefer this over raw scans at session start. `query` activates relevance ranking of tasks and board entries (semantic when embeddings are configured, lexical otherwise).',
+        description: 'Session-start brief (prefer over raw scans): focused task with dependencies, open tasks in scope, recent board entries and agent presence, within tokenBudget (default 2000). query ranks tasks and entries by relevance.',
         readOnlyHint: true,
         outputSchema: self::PACK_SCHEMA
     )]

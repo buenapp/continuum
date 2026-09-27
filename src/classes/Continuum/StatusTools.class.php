@@ -17,7 +17,7 @@ class StatusTools {
 
     #[McpTool(
         name: 'board_status',
-        description: 'Whole-board snapshot: agents with last-seen, open tasks with owners, held advisory locks, board scopes, queue depths, recent events. The pane of glass.',
+        description: 'Whole-board snapshot: agents with last-seen, open tasks with owners, held advisory locks, board scopes, queue depths, recent events.',
         readOnlyHint: true,
         outputSchema: self::STATUS_SCHEMA
     )]

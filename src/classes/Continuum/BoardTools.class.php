@@ -28,7 +28,7 @@ class BoardTools {
     #[McpTool(
         name: 'blackboard_write',
         renamedFrom: 'bb_write',
-        description: 'Write a blackboard entry under a scope (default: global). Value may be any JSON value. Existing keys are overwritten with MVCC protection.',
+        description: 'Write any JSON value to a blackboard key in a scope (default global), overwriting an existing value.',
         outputSchema: self::WRITE_SCHEMA
     )]
     public function blackboard_write(string $key, mixed $value, ?string $scope = null): ToolResult {
@@ -62,7 +62,7 @@ class BoardTools {
     #[McpTool(
         name: 'blackboard_read',
         renamedFrom: 'bb_read',
-        description: 'Read a blackboard entry from a scope (default: global). Errors when the key does not exist.',
+        description: 'Read a blackboard key from a scope (default global); errors if the key does not exist.',
         readOnlyHint: true,
         outputSchema: self::READ_SCHEMA
     )]
@@ -92,7 +92,7 @@ class BoardTools {
     #[McpTool(
         name: 'blackboard_keys',
         renamedFrom: 'bb_keys',
-        description: 'List blackboard keys in a scope (default: global).',
+        description: 'List blackboard keys in a scope (default global).',
         readOnlyHint: true,
         outputSchema: self::KEYS_SCHEMA
     )]
@@ -134,7 +134,7 @@ class BoardTools {
     #[McpTool(
         name: 'blackboard_delete',
         renamedFrom: 'bb_delete',
-        description: 'Delete a blackboard entry. Restricted to the entry author or the agent that owns the scope.',
+        description: 'Delete a blackboard key (scope default global). Only the entry author or the scope owner may delete.',
         destructiveHint: true,
         idempotentHint: false,
         outputSchema: self::DELETE_SCHEMA

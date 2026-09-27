@@ -21,7 +21,7 @@ class MemoryTools {
 
     #[McpTool(
         name: 'promote_to_memory',
-        description: 'Promote distilled facts about an entity to long-term memory (Heliofane). Adds observations to the entity; with createIfMissing the entity is created first. Call at handoff or completion for outcomes that outlive the board.',
+        description: 'Add distilled facts about an entity to long-term memory (Heliofane); createIfMissing (default true) creates the entity first. Use at handoff or completion for outcomes that outlive the board.',
         openWorldHint: true,
         outputSchema: self::PROMOTE_SCHEMA
     )]

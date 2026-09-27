@@ -4,6 +4,16 @@ All notable behavior changes ship in this file alongside the code that
 introduces them (see AGENTS.md). Version parity is enforced between
 `APPLICATION_VERSION`, the FreeBSD port's `DISTVERSION`, and the git tag.
 
+## Unreleased
+
+### Changed
+
+- Tool descriptions are tightened and now state the defaults that the
+  generated input schemas do not carry (`tokenBudget`, `limit`,
+  `ttlSeconds`, `priority`, `createIfMissing`). tools/list drops from
+  1,691 to 1,551 tokens (Qwen tokenizer). Tool names, parameters and
+  behavior are unchanged.
+
 ## 0.2.4 (2026-09-14)
 
 ### Changed

@@ -21,7 +21,7 @@ class LockTools {
     #[McpTool(
         name: 'advisory_lock_acquire',
         renamedFrom: 'lock_acquire',
-        description: 'Acquire an advisory named lock with a TTL (seconds). Advisory means cooperation-based: holders cannot block others from touching the resource — it is a claim other agents are expected to respect. Fails cleanly when another agent holds it.',
+        description: 'Acquire a named advisory lock for ttlSeconds (default 300). It blocks nothing; other agents are expected to respect it. Fails if another agent holds it.',
         outputSchema: self::ACQUIRE_SCHEMA
     )]
     public function advisory_lock_acquire(string $name, int $ttlSeconds = 300): ToolResult {
@@ -46,7 +46,7 @@ class LockTools {
     #[McpTool(
         name: 'advisory_lock_release',
         renamedFrom: 'lock_release',
-        description: 'Release a named advisory lock. Only the owner can release; a non-owner release fails unless force-released after confirmation: leave `confirm` null to be prompted (MRTR elicitation), or pass the answer object directly. An expired or orphaned lock is a legitimate force-release target.',
+        description: 'Release a named advisory lock you own. Force-releasing another agent\'s lock (e.g. expired or orphaned) needs confirmation: leave confirm null to be prompted, or pass the answer object directly.',
         idempotentHint: true,
         outputSchema: self::RELEASE_SCHEMA
     )]
