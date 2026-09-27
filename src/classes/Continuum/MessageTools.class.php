@@ -18,7 +18,7 @@ class MessageTools {
 
     #[McpTool(
         name: 'message_send',
-        description: 'Send a message to another registered agent\'s inbox, optionally under a topic.',
+        description: 'Send a message to another agent\'s inbox, optionally with a topic.',
         outputSchema: self::SEND_SCHEMA
     )]
     public function message_send(string $to, string $body, ?string $topic = null): ToolResult {
@@ -36,7 +36,7 @@ class MessageTools {
 
     #[McpTool(
         name: 'message_inbox_pull',
-        description: 'Pull up to `limit` (default 20) messages from your own inbox, oldest first. Pulled messages are removed.',
+        description: 'Pull and remove up to limit (default 20) messages from your inbox, oldest first.',
         destructiveHint: true,
         idempotentHint: false,
         outputSchema: self::PULL_SCHEMA
@@ -60,7 +60,7 @@ class MessageTools {
 
     #[McpTool(
         name: 'message_broadcast',
-        description: 'Send a message to every registered agent except yourself, optionally under a topic.',
+        description: 'Send a message to every other registered agent, optionally with a topic.',
         outputSchema: self::BROADCAST_SCHEMA
     )]
     public function message_broadcast(string $body, ?string $topic = null): ToolResult {

@@ -18,7 +18,7 @@ class AgentTools {
 
     #[McpTool(
         name: 'agent_register',
-        description: 'Register (or refresh) your agent presence record with capabilities and an optional human label. Registers the identity derived from your API key. When the transport supplies a session id, the session also registers so concurrent sessions on one key do not clobber each other.',
+        description: 'Register or refresh your presence (identity comes from your API key) with optional capabilities and a human label. Each session registers separately, so concurrent sessions on one key do not clobber each other.',
         outputSchema: self::REGISTER_SCHEMA
     )]
     public function agent_register(?array $capabilities = null, ?string $label = null): ToolResult {
@@ -46,7 +46,7 @@ class AgentTools {
 
     #[McpTool(
         name: 'agent_heartbeat',
-        description: 'Refresh your presence heartbeat, optionally declaring what you are currently working on. With a session id the working-on note is per-session; legacy clients without one still set the agent-level field (last writer wins).',
+        description: 'Refresh your presence heartbeat, optionally declaring what you are working on (per session when the transport has a session id).',
         idempotentHint: true,
         outputSchema: self::HEARTBEAT_SCHEMA
     )]

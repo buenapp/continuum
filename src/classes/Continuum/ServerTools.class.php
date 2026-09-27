@@ -15,7 +15,7 @@ class ServerTools {
      */
     #[McpTool(
         name: 'server_info',
-        description: 'Return Continuum server identity, version, and engine configuration summary.',
+        description: 'Server identity, version and engine configuration.',
         readOnlyHint: true,
         outputSchema: self::INFO_SCHEMA
     )]

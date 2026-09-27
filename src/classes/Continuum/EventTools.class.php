@@ -17,7 +17,7 @@ class EventTools {
     #[McpTool(
         name: 'coordination_event_log',
         renamedFrom: 'event_log',
-        description: 'Read the coordination board\'s append-only event log (every task/board/lock/message mutation), newest first. Filter by event type (task_claim, blackboard_write, ...), scope, and/or an ISO-8601 `since` timestamp.',
+        description: 'Append-only log of every task/board/lock/message mutation, newest first (limit default 50). Filter by event type (e.g. task_claim, blackboard_write), scope, or ISO-8601 since.',
         readOnlyHint: true,
         outputSchema: self::LOG_SCHEMA
     )]

@@ -37,7 +37,7 @@ class TaskTools {
      */
     #[McpTool(
         name: 'task_create',
-        description: 'Create a task on the blackboard. Status starts as pending; dependencies are recorded in the task graph and the task id is queued for claim.',
+        description: 'Create a pending task (scope default global, priority default 2), optionally depending on other task ids, and queue it for claiming.',
         outputSchema: self::TASK_SUMMARY_SCHEMA
     )]
     public function task_create(
@@ -95,7 +95,7 @@ class TaskTools {
      */
     #[McpTool(
         name: 'task_list',
-        description: 'List tasks with optional scope/status/owner filters. Statuses: ' . self::STATUSES_CSV,
+        description: 'List tasks filtered by scope, status or owner (limit default 50). Statuses: ' . self::STATUSES_CSV,
         readOnlyHint: true,
         outputSchema: self::TASK_LIST_SCHEMA
     )]
@@ -131,7 +131,7 @@ class TaskTools {
      */
     #[McpTool(
         name: 'task_claim',
-        description: 'Atomically claim a pending task for your agent identity. Fails when the task is not pending or another agent holds it. A held task can be stolen: leave `confirm` null to be prompted (MRTR elicitation), or pass the answer object directly, e.g. {action: "accept", content: {approve: true}}.',
+        description: 'Atomically claim a pending task. Fails if not pending or held by another agent; stealing a held task needs confirmation: leave confirm null to be prompted, or pass e.g. {action: "accept", content: {approve: true}}.',
         outputSchema: self::TASK_SUMMARY_SCHEMA
     )]
     public function task_claim(string $taskId, ?array $confirm = null): ToolResult {
@@ -186,7 +186,7 @@ class TaskTools {
      */
     #[McpTool(
         name: 'task_update_status',
-        description: 'Move a task through its state machine (' . self::STATUSES_CSV . '). Only the owning agent may update; done/cancelled release the claim.',
+        description: 'Set a task\'s status (' . self::STATUSES_CSV . '). Owner only; done/cancelled release the claim.',
         outputSchema: self::TASK_SUMMARY_SCHEMA
     )]
     public function task_update_status(string $taskId, string $status, ?string $note = null): ToolResult {
@@ -232,7 +232,7 @@ class TaskTools {
      */
     #[McpTool(
         name: 'task_handoff',
-        description: 'Attach a handoff document (summary, next steps, blockers), release your claim, and return the task to the pending queue.',
+        description: 'Release your claim with a handoff (summary, next steps, blockers) and return the task to pending.',
         outputSchema: self::TASK_SUMMARY_SCHEMA
     )]
     public function task_handoff(string $taskId, string $summary, ?string $nextSteps = null, ?array $blockers = null): ToolResult {
