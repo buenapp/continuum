@@ -3,7 +3,7 @@
 Continuum follows semver. `UPGRADING.md` lists everything an operator must
 do when moving between versions; it ships with the code that requires it.
 
-## Unreleased (messaging targeting + lease/ack)
+## 0.3.0 (messaging targeting + lease/ack)
 
 No operator action: no new settings keys, no engine schema changes, and
 existing inboxes need no migration (messages without an id or targeting
