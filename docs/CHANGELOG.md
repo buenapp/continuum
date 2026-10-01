@@ -8,6 +8,12 @@ introduces them (see AGENTS.md). Version parity is enforced between
 
 ### Added
 
+- Design proposal for the XMPP transport
+  ([issue #3](https://pacyworld.dev/buenapp/continuum/issues/3)):
+  `docs/XMPP-TRANSPORT.md` recommends a Zig sidecar on xmppd's
+  `lib/xmppc` client core over an in-process PHP extension, and pins
+  down the IPC/API shape plus the verified xmppd capability answers.
+
 - Session/task-addressed messaging (implements
   [issue #2](https://pacyworld.dev/buenapp/continuum/issues/2)):
   - `message_send` gains optional `session`, `task`, `kind`
