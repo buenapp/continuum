@@ -4,6 +4,41 @@ All notable behavior changes ship in this file alongside the code that
 introduces them (see AGENTS.md). Version parity is enforced between
 `APPLICATION_VERSION`, the FreeBSD port's `DISTVERSION`, and the git tag.
 
+## Unreleased
+
+### Added
+
+- Session/task-addressed messaging (implements
+  [issue #2](https://pacyworld.dev/buenapp/continuum/issues/2)):
+  - `message_send` gains optional `session`, `task`, `kind`
+    (`notice|context|directive|control`), `priority` (`normal|urgent`),
+    `expires` (ISO 8601), `replyTo`, and `epoch` (master epoch; allowed
+    on `control` messages only) fields. Every message now
+    carries an `M-XXXXXXXX` id. A `task` target resolves to the session
+    bound to that task; sending to an unknown or unbound task fails
+    rather than misdelivering.
+  - New tools `message_lease` and `message_ack`: reads lease messages
+    (the caller's session plus untargeted ones) instead of deleting
+    them; an unacknowledged lease expires and returns the messages;
+    `message_ack` deletes by id so redelivery is idempotent for the
+    reader.
+  - Clients declare their logical session as `params._meta.session`;
+    it wins over the transport session id for inbox scoping and task
+    binding. `task_claim` records that session on the task card
+    (surfaced in task summaries as `session`); handoffs and terminal
+    or pending statuses release the binding.
+  - Sends, leases and acks are written to the event log
+    (`message_lease` / `message_ack` event types).
+
+### Changed
+
+- `message_inbox_pull` keeps its destructive-read behavior but only
+  ever touches untargeted, unleased, unexpired messages; anything
+  addressed to a session is exclusively reachable through a
+  session-scoped lease. Expired messages are dropped lazily by any
+  inbox operation. Inbox reads/writes are optimistic-concurrency
+  guarded (WATCH/MULTI/EXEC) instead of a bare LRANGE+LTRIM.
+
 ## 0.2.5 (2026-09-27)
 
 ### Changed

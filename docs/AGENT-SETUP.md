@@ -123,6 +123,11 @@ with argument autocompletion for scopes, task ids, and board keys):
    that agent for deletes).
 6. **Inboxes**: `message_inbox_pull` at session start and between long
    turns; `message_send` / `message_broadcast` for coordination.
+   Clients that declare `params._meta.session` should prefer the
+   non-destructive path: `message_lease` returns the session's messages
+   plus untargeted ones and holds them until the lease expires;
+   `message_ack` deletes the processed ids. `message_inbox_pull` never
+   touches session-addressed mail.
 7. **Handoff, don't abandon**: `task_handoff(task_id, summary, ...)`
    writes the structured handoff document, releases your claim, and
    re-queues the task.

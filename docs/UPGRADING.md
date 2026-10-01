@@ -3,6 +3,32 @@
 Continuum follows semver. `UPGRADING.md` lists everything an operator must
 do when moving between versions; it ships with the code that requires it.
 
+## Unreleased (messaging targeting + lease/ack)
+
+No operator action: no new settings keys, no engine schema changes, and
+existing inboxes need no migration (messages without an id or targeting
+fields are simply untargeted, as before).
+
+Client-visible changes:
+
+- `message_send` accepts optional `session`, `task`, `kind`,
+  `priority`, `expires`, `replyTo`, `epoch` (control-kind only); its
+  result gains the message `id`.
+  A `task` target resolves to the session recorded on the task by its
+  claim and fails when the task is unknown or unbound.
+- New tools `message_lease` (non-destructive, session-scoped read) and
+  `message_ack` (delete by id). Session-scoped readers should declare
+  `params._meta.session` on their MCP requests; it also makes
+  `task_claim` bind the task to that session. Without a declared
+  session, the transport session id (`MCP-Session-Id`) is used.
+- `message_inbox_pull` is unchanged for untargeted messages, but it no
+  longer returns session-addressed or currently leased messages at all;
+  those require `message_lease`. This is the fix for cross-session
+  misdelivery under a shared agent identity.
+- Task summaries (all `task_*` outputs and `task_list`) gain a
+  `session` field, null when the task is unbound. Consumers that skip
+  unknown fields are unaffected.
+
 ## 0.2.5
 
 No operator action. Tool descriptions only; no protocol, setting, or schema

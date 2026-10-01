@@ -92,7 +92,14 @@ $server->register(new CoordinationPrompts($storage, $heliofaneBridge !== null));
 // notifier back out. The loop is strict opt-in — with Comal not
 // vendored here, ComalEventLoop::create() is null and the transport
 // runs blocking I/O.
-$transport = new StdioTransport($server->handleRequest(...), $server->tick(...));
+// A declared params._meta.session overrides the pid-scoped session as the
+// targeting identity for inbox reads and task binding.
+$handler = function (array $request) use ($server) {
+    $declared = $request['params']['_meta']['session'] ?? null;
+    \Continuum\SessionContext::setDeclared(is_string($declared) && $declared !== '' ? $declared : null);
+    return $server->handleRequest($request);
+};
+$transport = new StdioTransport($handler, $server->tick(...));
 $transport->setLogger(function (string $message) {
     fwrite(STDERR, "[MCP] " . $message . "\n");
 });

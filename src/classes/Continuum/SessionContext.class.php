@@ -20,11 +20,29 @@ final class SessionContext {
 
     private static ?string $id = null;
 
+    /** Session id declared by the client as `params._meta.session` (the
+     *  agent's own logical session, e.g. Sonya Core's sess_<hex>; takes
+     *  precedence over the transport id for message targeting). */
+    private static ?string $declared = null;
+
     public static function set(?string $id): void {
         self::$id = $id;
     }
 
     public static function id(): ?string {
         return self::$id;
+    }
+
+    public static function setDeclared(?string $id): void {
+        self::$declared = $id;
+    }
+
+    public static function declared(): ?string {
+        return self::$declared;
+    }
+
+    /** Effective session for message targeting and task binding. */
+    public static function session(): ?string {
+        return self::$declared ?? self::$id;
     }
 }

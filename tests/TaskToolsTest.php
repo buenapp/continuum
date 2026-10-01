@@ -11,6 +11,16 @@ use Continuum\Storage\ContinuumStorage;
 
 class TaskToolsTest extends TestCase {
 
+    protected function setUp(): void {
+        \Continuum\SessionContext::set(null);
+        \Continuum\SessionContext::setDeclared(null);
+    }
+
+    protected function tearDown(): void {
+        \Continuum\SessionContext::set(null);
+        \Continuum\SessionContext::setDeclared(null);
+    }
+
     private function storage(FakeCouch $couch, ?FakeRespClient $resp = null, ?FakeArcade $arcade = null): ContinuumStorage {
         return new ContinuumStorage(
             new ValKeyStore($resp ?? new FakeRespClient([])),
@@ -173,6 +183,68 @@ class TaskToolsTest extends TestCase {
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('changed concurrently');
         (new TaskTools($this->storage($couch)))->task_claim('T-1');
+    }
+
+    public function testClaimBindsDeclaredSession(): void {
+        \Continuum\SessionContext::setDeclared('sess-42');
+        $couch = new FakeCouch([
+            ['code' => 200, 'body' => ['_rev' => '1-a', 'status' => 'pending', 'owner' => null, 'title' => 'T']],
+            ['code' => 201, 'body' => ['id' => 'T-1', 'rev' => '2-b']],
+            ['code' => 200, 'body' => ['uuids' => ['ev']]],
+            ['code' => 201, 'body' => ['id' => 'ev', 'rev' => '1-x']],
+        ]);
+        $result = (new TaskTools($this->storage($couch)))->task_claim('T-1')->getStructuredContent();
+        // _meta.session takes precedence and lands on the task card
+        $this->assertSame('sess-42', $result['session']);
+        $this->assertSame('sess-42', $couch->calls[1]['data']['session']);
+    }
+
+    public function testClaimFallsBackToTransportSessionId(): void {
+        \Continuum\SessionContext::set('mcp-session-9');
+        $couch = new FakeCouch([
+            ['code' => 200, 'body' => ['_rev' => '1-a', 'status' => 'pending', 'owner' => null, 'title' => 'T']],
+            ['code' => 201, 'body' => ['id' => 'T-1', 'rev' => '2-b']],
+            ['code' => 200, 'body' => ['uuids' => ['ev']]],
+            ['code' => 201, 'body' => ['id' => 'ev', 'rev' => '1-x']],
+        ]);
+        $result = (new TaskTools($this->storage($couch)))->task_claim('T-1')->getStructuredContent();
+        $this->assertSame('mcp-session-9', $result['session']);
+    }
+
+    public function testClaimWithoutSessionLeavesTaskUnbound(): void {
+        $couch = new FakeCouch([
+            ['code' => 200, 'body' => ['_rev' => '1-a', 'status' => 'pending', 'owner' => null, 'title' => 'T']],
+            ['code' => 201, 'body' => ['id' => 'T-1', 'rev' => '2-b']],
+            ['code' => 200, 'body' => ['uuids' => ['ev']]],
+            ['code' => 201, 'body' => ['id' => 'ev', 'rev' => '1-x']],
+        ]);
+        $result = (new TaskTools($this->storage($couch)))->task_claim('T-1')->getStructuredContent();
+        $this->assertNull($result['session']);
+        $this->assertArrayNotHasKey('session', $couch->calls[1]['data']);
+    }
+
+    public function testUpdateStatusReleasesSessionBinding(): void {
+        $couch = new FakeCouch([
+            ['code' => 200, 'body' => ['_rev' => '2-b', 'status' => 'in_progress', 'owner' => 'test-agent', 'title' => 'T', 'session' => 'sess-1']],
+            ['code' => 201, 'body' => ['id' => 'T-1', 'rev' => '3-c']],
+            ['code' => 200, 'body' => ['uuids' => ['ev']]],
+            ['code' => 201, 'body' => ['id' => 'ev', 'rev' => '1-x']],
+        ]);
+        $result = (new TaskTools($this->storage($couch)))->task_update_status('T-1', 'done')->getStructuredContent();
+        $this->assertNull($result['session']);
+        $this->assertArrayNotHasKey('session', $couch->calls[1]['data']);
+    }
+
+    public function testHandoffReleasesSessionBinding(): void {
+        $couch = new FakeCouch([
+            ['code' => 200, 'body' => ['_rev' => '4-d', 'status' => 'in_progress', 'owner' => 'test-agent', 'title' => 'T', 'scope' => 'proj', 'session' => 'sess-1']],
+            ['code' => 201, 'body' => ['id' => 'T-1', 'rev' => '5-e']],
+            ['code' => 200, 'body' => ['uuids' => ['ev4']]],
+            ['code' => 201, 'body' => ['id' => 'ev4', 'rev' => '1-x']],
+        ]);
+        $result = (new TaskTools($this->storage($couch, new FakeRespClient([]))))->task_handoff('T-1', 'halfway');
+        $this->assertNull($result->getStructuredContent()['session']);
+        $this->assertArrayNotHasKey('session', $couch->calls[1]['data']);
     }
 
     public function testUpdateStatusDoneReleasesClaimAndLogs(): void {

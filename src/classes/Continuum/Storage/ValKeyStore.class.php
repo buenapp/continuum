@@ -13,7 +13,8 @@ namespace Continuum\Storage;
  *   agents                   SET   registered agent ids
  *   session:{agent}:{sid}    HASH  session-scoped presence (TTL-refreshed)
  *   agent-sessions:{agent}   SET   session ids seen for an agent
- *   inbox:{agentId}          LIST  inbound messages (JSON)
+ *   inbox:{agentId}          LIST  inbound messages (JSON; may carry
+ *                                   session/task targeting and lease markers)
  *   signal:{channel}         PUBSUB channels (no persistence)
  */
 class ValKeyStore {
@@ -163,16 +164,134 @@ class ValKeyStore {
     }
 
     /**
-     * Read up to $limit inbox messages, leaving the remainder queued.
-     * Two step LRANGE+LTRIM: not atomic across concurrent pulls of the same
-     * inbox (single consumer per agent in practice).
+     * Destructive legacy pull: take up to $limit untargeted messages,
+     * oldest first, and remove them. Messages carrying a session target,
+     * a live lease, or a passed expiry are left alone (expired ones are
+     * dropped from the list). Targeted messages need message_lease.
      */
     public function inboxPull(string $agentId, int $limit): array {
+        $now = time();
+        $pulled = $this->inboxRewrite($agentId, function (array $entries) use ($limit, $now) {
+            $kept = [];
+            $taken = [];
+            foreach ($entries as $e) {
+                if (self::isExpired($e, $now)) { continue; }
+                if (count($taken) < $limit && !self::leaseActive($e, $now) && empty($e['session'])) {
+                    $taken[] = self::stripLease($e);
+                    continue;
+                }
+                $kept[] = $e;
+            }
+            return [$kept, $taken];
+        });
+        if ($pulled === null) {
+            throw new \RuntimeException("inbox for {$agentId} changed concurrently; retry the pull");
+        }
+        return $pulled;
+    }
+
+    /**
+     * Lease up to $limit messages eligible for $session (untargeted plus
+     * ones addressed to it), oldest first. Leased messages are marked
+     * in place until $ttlSeconds pass; an expired lease makes a message
+     * eligible again. Returns ['id', 'expires_at', 'messages'].
+     */
+    public function inboxLease(string $agentId, ?string $session, int $limit, int $ttlSeconds, int $now): array {
+        $leaseId = 'L-' . strtoupper(bin2hex(random_bytes(4)));
+        $until = $now + $ttlSeconds;
+        $messages = $this->inboxRewrite($agentId, function (array $entries) use ($session, $limit, $now, $until, $leaseId) {
+            $kept = [];
+            $taken = [];
+            foreach ($entries as $e) {
+                if (self::isExpired($e, $now)) { continue; }
+                if (self::leaseActive($e, $now)) { $kept[] = $e; continue; }
+                $e = self::stripLease($e); // a dead lease returns the message
+                $eligible = empty($e['session']) || ($session !== null && ($e['session'] ?? null) === $session);
+                if ($eligible && count($taken) < $limit) {
+                    $e['lease'] = $leaseId;
+                    $e['lease_until'] = $until;
+                    $taken[] = $e;
+                }
+                $kept[] = $e;
+            }
+            return [$kept, $taken];
+        });
+        if ($messages === null) {
+            throw new \RuntimeException("inbox for {$agentId} changed concurrently; retry the lease");
+        }
+        return ['id' => $leaseId, 'expires_at' => gmdate('c', $until), 'messages' => $messages];
+    }
+
+    /**
+     * Acknowledge (delete) messages by id. Returns the ids actually
+     * found and removed; unknown or already-gone ids are simply absent.
+     */
+    public function inboxAck(string $agentId, array $ids, int $now): array {
+        $wanted = array_fill_keys($ids, true);
+        $acked = $this->inboxRewrite($agentId, function (array $entries) use ($wanted, $now) {
+            $kept = [];
+            $removed = [];
+            foreach ($entries as $e) {
+                if (isset($wanted[$e['id'] ?? ''])) { $removed[] = $e['id']; continue; }
+                if (self::isExpired($e, $now)) { continue; }
+                $kept[] = $e;
+            }
+            return [$kept, $removed];
+        });
+        if ($acked === null) {
+            throw new \RuntimeException("inbox for {$agentId} changed concurrently; retry the ack");
+        }
+        return $acked;
+    }
+
+    /**
+     * Optimistic read-modify-write of the whole inbox list.
+     *
+     * $transform receives the decoded entries and returns [kept, result].
+     * The list is replaced by `kept` inside WATCH/MULTI/EXEC, so a
+     * concurrent writer loses nothing: EXEC then reports the race and we
+     * re-read once before giving up with null. Unchanged lists (no
+     * reaping, nothing selected) skip the write entirely.
+     */
+    private function inboxRewrite(string $agentId, callable $transform): ?array {
         $key = self::NS . 'inbox:' . $agentId;
-        $items = $this->client->command('LRANGE', $key, '0', (string)($limit - 1)) ?: [];
-        if (empty($items)) { return []; }
-        $this->client->command('LTRIM', $key, (string)count($items), '-1');
-        return array_map(fn($j) => json_decode($j, true), $items);
+        for ($attempt = 0; $attempt < 2; $attempt++) {
+            $this->client->command('WATCH', $key);
+            $raw = $this->client->command('LRANGE', $key, '0', '-1') ?: [];
+            $entries = array_map(fn($j) => json_decode($j, true) ?? [], $raw);
+            [$kept, $result] = $transform($entries);
+            if ($kept === $entries) {
+                $this->client->command('UNWATCH');
+                return $result;
+            }
+            $this->client->command('MULTI');
+            $this->client->command('DEL', $key);
+            if ($kept !== []) {
+                $this->client->command('RPUSH', $key, ...array_map(fn($e) => json_encode($e), $kept));
+            }
+            if ($this->client->command('EXEC') !== null) {
+                return $result;
+            }
+        }
+        return null;
+    }
+
+    /** A message outlives its welcome once its ISO-8601 expiry passes. */
+    private static function isExpired(array $entry, int $now): bool {
+        $expires = $entry['expires'] ?? null;
+        if ($expires === null) { return false; }
+        $ts = strtotime((string)$expires);
+        return $ts !== false && $ts <= $now;
+    }
+
+    /** Live lease marker set by inboxLease. */
+    private static function leaseActive(array $entry, int $now): bool {
+        return !empty($entry['lease']) && ($entry['lease_until'] ?? 0) > $now;
+    }
+
+    private static function stripLease(array $entry): array {
+        unset($entry['lease'], $entry['lease_until']);
+        return $entry;
     }
 
     /** All currently held locks: name => ['owner'=>, 'ttl_ms'=>]. */

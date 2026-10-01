@@ -45,7 +45,7 @@ class CoordinationPrompts {
                 "Bootstrap this session on the Continuum coordination board (you are agent '" . CONTINUUM_AGENT . "'):\n"
                 . "1. Call agent_register with your capabilities (and a human label if unset).\n"
                 . "2. Read the linked context pack resource for scope '{$scope}' (or call context_pack with that scope if resources are unavailable).\n"
-                . "3. Call message_inbox_pull to claim anything addressed to you.\n"
+                . "3. Call message_inbox_pull to claim anything addressed to you (or message_lease + message_ack if your client declares a session).\n"
                 . "4. Review continuum://tasks for claimable work in your scope.\n"
                 . "Do not start work until all four steps are done."
             ),

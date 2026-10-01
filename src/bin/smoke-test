@@ -170,7 +170,36 @@ if ($taskId !== null) {
     ));
 }
 
-// --- 9. subscription stream: listen + forced write, verify notification
+// --- 9. targeted messaging: message ids, session scoping, lease/ack
+$reg = rpc('tools/call', ['name' => 'agent_register', 'arguments' => []], $KEY);
+$self = toolData($reg)['agent'] ?? null;
+$sessionId = $marker . '-sess';
+$send = rpc('tools/call', ['name' => 'message_send', 'arguments' => [
+    'to' => $self ?? 'nobody', 'body' => "targeted {$marker}", 'session' => $sessionId,
+    'kind' => 'directive', 'priority' => 'urgent',
+]], $KEY);
+$messageId = toolData($send)['id'] ?? null;
+check('message_send targets a session and returns an id', is_string($self) && is_string($messageId), (string)$messageId);
+
+$legacyPull = rpc('tools/call', ['name' => 'message_inbox_pull', 'arguments' => []], $KEY);
+check('session-targeted mail is invisible to the legacy pull',
+    !str_contains(json_encode(toolData($legacyPull)['messages'] ?? []), $marker));
+
+$lease = rpcModern('tools/call', ['name' => 'message_lease', 'arguments' => [], '_meta' => ['session' => $sessionId]], $KEY, 'message_lease');
+$leased = toolData($lease);
+check('session-scoped lease returns the targeted message', ($leased['count'] ?? 0) >= 1
+    && in_array($messageId, array_column($leased['messages'] ?? [], 'id'), true), json_encode($leased['lease'] ?? null));
+
+$ack = rpc('tools/call', ['name' => 'message_ack', 'arguments' => ['ids' => [$messageId]]], $KEY);
+check('message_ack deletes by id', in_array($messageId, toolData($ack)['acked'] ?? [], true));
+
+if ($taskId !== null) {
+    $unbound = rpc('tools/call', ['name' => 'message_send', 'arguments' => ['to' => $self, 'body' => 'x', 'task' => $taskId]], $KEY);
+    check('task target without a bound session errors', !empty($unbound['result']['isError'])
+        && str_contains($unbound['result']['content'][0]['text'] ?? '', 'no bound session'));
+}
+
+// --- 10. subscription stream: listen + forced write, verify notification
 // A forked child collects frames; the parent re-writes the marker key
 // (the exact URI the child subscribed to).
 $subscribedUri = "continuum://board/global/{$marker}";
@@ -237,7 +266,7 @@ check('subscription stream notified on write',
     substr(json_encode(array_filter(explode("\n", $frames))), 0, 200)
 );
 
-// --- 10. MRTR cross-owner steal
+// --- 11. MRTR cross-owner steal
 if ($KEY2 === '') {
     skip('MRTR steal (modern elicitation)', 'no --key2 given');
     skip('MRTR decline keeps state', 'no --key2 given');

@@ -1,3 +1,5 @@
 Continuum is the coordination blackboard for multi-agent work. Use it for cross-agent shared state: write board entries, create and claim tasks, take advisory locks, hand off work, and read your inbox. Write durable outcomes to long-term memory (Heliofane) when a handoff completes — Continuum owns what happens next, not what is permanently true. Every call is attributed to your agent identity and written to the append-only event log.
 
+Messaging: if your client declares params._meta.session, prefer message_lease + message_ack (non-destructive, scoped to your session plus untargeted mail) over message_inbox_pull (destructive, untargeted only). Use message_send's session/task/kind/priority/expires/replyTo to target replies; a task target resolves to the session that claimed it.
+
 When presenting board state to a human (task tables, status summaries, release notes), lead with the task title, scope, status, and the Phorge task id when one is linked. Internal coordination ids (T-XXXXXXXX) are agent-facing handles — include them only when the user asks for them or another agent will act on them.

@@ -182,6 +182,12 @@ if (($rpcBody['method'] ?? null) === 'tools/call' && isset($rpcBody['params']['n
     MetricsCollector::increment('tool_calls_total', ['tool' => (string)$rpcBody['params']['name']]);
 }
 
+// Agents may declare their logical session as params._meta.session (the
+// targeting identity for scoped inbox reads and task session binding);
+// it wins over the transport session id where set.
+$declaredSession = $rpcBody['params']['_meta']['session'] ?? null;
+\Continuum\SessionContext::setDeclared(is_string($declaredSession) && $declaredSession !== '' ? $declaredSession : null);
+
 $transport = new HttpSseTransport(
     $server->handleRequest(...),
     $server->modernVersions(),

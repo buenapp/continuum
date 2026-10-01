@@ -154,7 +154,7 @@ class ContinuumStorage implements ContinuumStorageInterface {
         }
         return $out;
     }
-    /** Read up to $limit inbox messages, leaving the remainder queued. */
+    /** Destructive legacy pull of up to $limit untargeted inbox messages. */
     public function inboxPull(string $agentId, int $limit): array {
         return $this->valkey->inboxPull($agentId, $limit);
     }
@@ -171,6 +171,14 @@ class ContinuumStorage implements ContinuumStorageInterface {
     }
     public function inboxPush(string $agentId, array $message): int {
         return $this->valkey->inboxPush($agentId, $message);
+    }
+    /** Lease up to $limit messages for $session (null reads untargeted only). */
+    public function inboxLease(string $agentId, ?string $session, int $limit, int $ttlSeconds): array {
+        return $this->valkey->inboxLease($agentId, $session, $limit, $ttlSeconds, time());
+    }
+    /** Acknowledge (delete) inbox messages by id; returns the removed ids. */
+    public function inboxAck(string $agentId, array $ids): array {
+        return $this->valkey->inboxAck($agentId, $ids, time());
     }
     public function inboxDrain(string $agentId): array {
         return $this->valkey->inboxDrain($agentId);

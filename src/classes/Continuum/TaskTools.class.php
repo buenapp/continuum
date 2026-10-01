@@ -162,6 +162,11 @@ class TaskTools {
         }
         $task['status'] = 'claimed';
         $task['owner'] = CONTINUUM_AGENT;
+        // Bind the claiming session so messages addressed to this task can
+        // resolve to it (message_send task=...). _meta.session wins over
+        // the transport session id; no session leaves the task unbound.
+        $boundSession = SessionContext::session();
+        if ($boundSession !== null) { $task['session'] = $boundSession; } else { unset($task['session']); }
         $task['claimed_at'] = gmdate('c');
         $task['updated_at'] = gmdate('c');
         $this->saveGuarded($taskId, $task, $task['_rev'] ?? null);
@@ -209,6 +214,9 @@ class TaskTools {
         } elseif ($status === 'pending') {
             $task['owner'] = null;
         }
+        if ($task['owner'] === null) {
+            unset($task['session']); // binding dies with the claim
+        }
         $this->saveGuarded($taskId, $task, $task['_rev'] ?? null);
         if ($task['owner'] === null) {
             $this->storage->unclaim($taskId);
@@ -248,6 +256,7 @@ class TaskTools {
         ];
         $task['status'] = 'pending';
         $task['owner'] = null;
+        unset($task['session']); // the next claim rebinds
         $task['updated_at'] = gmdate('c');
         $this->saveGuarded($taskId, $task, $task['_rev'] ?? null);
         $this->storage->unclaim($taskId);
@@ -289,10 +298,11 @@ class TaskTools {
             'owner' => ['type' => ['string', 'null']],
             'assignee' => ['type' => ['string', 'null']],
             'phorge_task_id' => ['type' => ['string', 'null']],
+            'session' => ['type' => ['string', 'null']],
             'priority' => ['type' => 'integer'],
             'updated_at' => ['type' => ['string', 'null']],
         ],
-        'required' => ['task', 'title', 'scope', 'status', 'owner', 'assignee', 'phorge_task_id', 'priority', 'updated_at'],
+        'required' => ['task', 'title', 'scope', 'status', 'owner', 'assignee', 'phorge_task_id', 'session', 'priority', 'updated_at'],
     ];
 
     private const TASK_LIST_SCHEMA = [
@@ -314,6 +324,7 @@ class TaskTools {
             'owner' => $task['owner'] ?? null,
             'assignee' => $task['assignee'] ?? null,
             'phorge_task_id' => $task['phorge_task_id'] ?? null,
+            'session' => $task['session'] ?? null,
             'priority' => $task['priority'] ?? 2,
             'updated_at' => $task['updated_at'] ?? null,
         ];

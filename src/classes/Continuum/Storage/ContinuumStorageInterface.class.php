@@ -34,6 +34,8 @@ interface ContinuumStorageInterface {
     public function inboxPush(string $agentId, array $message): int;
     public function inboxDrain(string $agentId): array;
     public function inboxPull(string $agentId, int $limit): array;
+    public function inboxLease(string $agentId, ?string $session, int $limit, int $ttlSeconds): array;   // ['id'=>, 'expires_at'=>, 'messages'=>]
+    public function inboxAck(string $agentId, array $ids): array;   // removed ids
     public function listLocks(): array;   // name => ['owner'=>, 'ttl_ms'=>]
     public function queueDepth(string $queue): int;
 
