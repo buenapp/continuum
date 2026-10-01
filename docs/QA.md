@@ -11,6 +11,11 @@ php bin/smoke-test --url http://<host>:<port>/mcp --key <agent-key> \
   [--key2 <second-agent-key>] [--timeout 10]
 ```
 
+Targets on freebsd-dev1: `http://127.0.0.1:8910/mcp` for the `continuum-qa`
+jail (release QA), `http://127.0.0.1:8095/mcp` for a worktree dev server.
+Never 8090: that is prod Apache behind haproxy (see AGENTS.md, "Ports on
+freebsd-dev1").
+
 Walks: `/health`, `initialize` (capability map), `server/discover`
 (modern revision listed), catalog listings (tools/resource templates/
 prompts), a task lifecycle (`task_create` → claim), board round-trip via

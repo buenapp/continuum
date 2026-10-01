@@ -55,6 +55,20 @@ alternate port accepting PROXY protocol v2 (`mod_remoteip`,
 `RemoteIPProxyProtocol On`) plus a plain local :80 vhost for health checks.
 Sample: `etc/apache24/continuum.conf.sample`.
 
+### Ports on freebsd-dev1
+
+| Port | Owner |
+|---|---|
+| 8090 | Apache (prod Continuum) behind haproxy's `apache_back`. NEVER bind it with `php -S`. |
+| 8910 | `continuum-qa` jail (Apache). Smoke-test target for release QA. |
+| 8095 | Worktree dev server: `php -S 127.0.0.1:8095 -t src/public`. |
+
+A specific bind (`127.0.0.1:8090`) beats Apache's wildcard bind (`*:8090`)
+on loopback, so a stray dev server there silently takes over haproxy's
+default backend for every vhost. Run `sockstat -4l | grep :PORT` before
+binding any port. haproxy's `apache_back` health check requires a `Server:
+Apache` header, so a wrong listener shows as DOWN.
+
 ## Deployment
 
 Production deploys happen ONLY via the estate poudriere-built pkg repo.
