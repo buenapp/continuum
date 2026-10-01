@@ -1,4 +1,4 @@
-# XMPP Transport (issue #3) — design proposal
+# XMPP Transport (issue #3) - design proposal
 
 Status: proposal, pending operator decision. Nothing in this document is
 wired into the server yet; issue #2 (targeting + lease/ack) is the only
@@ -19,7 +19,7 @@ with an agent's inbox backed by its JID. The integration point can be:
 XMPP client connectivity is an always-on workload: one long-lived TLS
 stream per account, XEP-0198 stream management state tied to that TCP
 connection, unsolicited inbound stanzas arriving between HTTP requests,
-and presence that must not flap. Continuum's PHP is request-scoped —
+and presence that must not flap. Continuum's PHP is request-scoped:
 each Apache worker is a separate process that exists for one MCP call.
 An in-process extension would mean one XMPP connection per worker,
 presence churn on worker recycling, and no receive path while PHP is
@@ -36,6 +36,44 @@ pattern, all consumers.
 Continuum remains the system of record: the board, tasks, locks,
 handoffs, the lease model, and the audit log live here; the sidecar is
 a pipe.
+
+## How the sidecar works
+
+It is **not** a proxy. A proxy would relay XMPP protocol bytes between
+Continuum and xmppd, which would put the XMPP state machine back inside
+PHP, the thing we are avoiding. The sidecar *is* the XMPP client:
+
+- **It signs in, not Continuum.** Continuum has no XMPP stack and never
+  sees an XMPP credential. The sidecar holds one c2s account per
+  configured agent identity (`devin@…`, `sonya@…`, `continuum@…` for
+  the service itself), authenticates (SASL), binds the resource,
+  publishes presence, and keeps the TLS stream up forever, reconnecting
+  and resuming with XEP-0198 after outages. `lib/xmppc` is explicitly
+  built for N-clients-one-kqueue, so N streams cost one kqueue loop.
+- **It owns all stream state.** Stream-management ack counts, resumption
+  tokens, presence, roster, MAM archive sync cursors. If xmppd or the
+  network blips, the sidecar absorbs it; a message Continuum already
+  "sent" is still delivered once the stream resumes.
+- **Inbound is push, not poll.** Stanzas arrive on the always-on stream
+  the moment xmppd routes them (including offline-store delivery at
+  sign-in). The sidecar maps each stanza to the agent whose account
+  received it and POSTs it to Continuum's loopback inbound hook, which
+  files it into that agent's inbox through the normal `message_send`
+  code path (audit log included).
+- **Continuum's PHP stays request-scoped and stateless.** `message_send`
+  does one local socket round-trip: hand the sidecar a JSON envelope,
+  get back a stanza id. Nothing persists in PHP between requests, which
+  is exactly what Apache's process model wants.
+
+What Continuum configures is only: the socket path, which local agent
+identities map to which JIDs, and the HTTP credential the sidecar
+presents on the inbound hook. The XMPP account passwords live in the
+sidecar's own config, not in Continuum's.
+
+Failure modes degrade to issue-#2 semantics: sidecar down or
+unconfigured → targeted inbox only, no data loss (sends either fail
+loud or fall back to local inbox delivery, configurable).
+
 
 ## Architecture
 
@@ -125,7 +163,7 @@ available; `id` correlation falls back to the stanza id otherwise.
   connections, no roster semantics), but nothing in this design depends
   on it.
 - **Negative presence priority** excludes a resource from bare-JID
-  message delivery (RFC 6121 §8.5.2.1.1) — verified in the router. Note
+  message delivery (RFC 6121 §8.5.2.1.1) - verified in the router. Note
   the corollary: bare-JID mail goes to *every* non-negative resource,
   so role addressing relies on non-master nodes keeping negative
   priority.
