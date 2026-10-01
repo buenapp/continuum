@@ -9,7 +9,7 @@
  * and MRTR cross-owner steal (prompt turn + inputResponses retry).
  *
  * Usage:
- *   php bin/smoke-test --url http://127.0.0.1:8090/mcp \
+ *   php bin/smoke-test --url http://127.0.0.1:8095/mcp \
  *     --key <key-agent-1> [--key2 <key-agent-2>] [--timeout 10]
  *
  * Requires a second agent key (--key2) for the steal scenarios; without it
