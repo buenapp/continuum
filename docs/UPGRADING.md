@@ -3,7 +3,7 @@
 Continuum follows semver. `UPGRADING.md` lists everything an operator must
 do when moving between versions; it ships with the code that requires it.
 
-## Unreleased (XMPP inbound hook)
+## 0.4.0 (XMPP transport)
 
 Additive: new endpoint `POST /mcp/xmpp-inbound` for the bridge sidecar
 (issue #3). Operators who want the XMPP transport add

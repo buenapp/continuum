@@ -62,7 +62,7 @@ debug = false
 ;bridge_agent = continuum-xmpp-bridge
 ;
 ; Outbound: when socket + domain are set, message_send/broadcast travel over
-; XMPP via the sidecar instead of local inbox delivery. The agent's JID is
-; <identity>@<domain>; a session target becomes the JID resource.
+; XMPP via the sidecar instead of local inbox delivery. Targets are the bare
+; JID <identity>@<domain>; a session target rides in the sonya payload.
 ;socket = /var/run/continuum-xmpp-bridge.sock
 ;domain = xmpp.example.com
