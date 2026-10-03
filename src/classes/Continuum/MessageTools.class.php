@@ -219,14 +219,16 @@ class MessageTools {
     }
 
     /**
-     * Send through the bridge sidecar (issue #3): the agent's JID is
-     * `to@domain`, and a session target becomes the JID resource (XMPP
-     * resource = session id, per the addressing rules). Local inbox
-     * delivery does not happen here; the recipient's copy arrives through
-     * the bridge's inbound hook (message_xmpp_inbound), so there is no
-     * double delivery on this path. Transport failures fail the call:
-     * silently falling back to a local-only inbox would change the
-     * operator's delivery contract.
+     * Send through the bridge sidecar (issue #3): the target is the
+     * agent's account, always addressed as the bare JID (`to@domain`);
+     * a session target rides in the sonya payload instead of becoming
+     * a JID resource (bridge-held identities own a single stream, so a
+     * session-named resource would not exist and the stanza would be
+     * lost). Local inbox delivery does not happen here; the recipient's
+     * copy arrives through the bridge's inbound hook
+     * (message_xmpp_inbound), so there is no double delivery on this
+     * path. Transport failures fail the call: silently falling back to
+     * a local-only inbox would change the operator's delivery contract.
      */
     private function sendViaXmpp(string $to, array $envelope): ToolResult {
         $domain = $this->xmppDomain;
@@ -234,7 +236,6 @@ class MessageTools {
             throw new \RuntimeException('xmpp bridge configured without a domain');
         }
         $jid = "{$to}@{$domain}";
-        if (!empty($envelope['session'])) { $jid .= '/' . $envelope['session']; }
         $fields = [];
         foreach (['kind', 'session', 'task', 'expires', 'priority', 'epoch'] as $f) {
             if (isset($envelope[$f])) { $fields[$f] = $envelope[$f]; }

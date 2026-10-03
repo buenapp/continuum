@@ -313,8 +313,9 @@ class MessageToolsTest extends TestCase {
         $this->assertTrue($data['queued']);
         $this->assertSame('xmpp-bridge', $data['via']);
         $call = $bridge->calls[0];
-        // bare-JID targeting: session rides as the resource
-        $this->assertSame('sonya@xmpp.example.com/sess-7', $call['to']);
+        // bare-JID addressing: the session rides in the sonya payload; a
+        // session-named resource would not exist on a bridged account.
+        $this->assertSame('sonya@xmpp.example.com', $call['to']);
         $this->assertSame('test-agent', $call['account']);
         $this->assertSame('ready', $call['body']);
         $this->assertSame('directive', $call['fields']['kind']);

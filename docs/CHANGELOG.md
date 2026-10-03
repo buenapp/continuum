@@ -17,10 +17,12 @@ introduces them (see AGENTS.md). Version parity is enforced between
 - XMPP outbound (issue #3, second slice): when `[xmpp] socket` and
   `[xmpp] domain` are set, `message_send`/`message_broadcast` travel
   over XMPP through the bridge sidecar (`PUT /v1/send` on its unix
-  socket). The agent's JID is `<identity>@<domain>`, a session target
-  becomes the JID resource, `topic` maps to `<subject/>`, `replyTo` to
-  `<thread>`. Bridge-side failures fail the send; there is no silent
-  local-delivery fallback. Local inbox copies of bridge-sent mail
+  socket). Targets are addressed as the bare JID `<identity>@<domain>`;
+  a session target rides in the sonya payload (bridge-held identities
+  own one stream, so a session-named resource would not exist; Sonya's
+  own mesh addresses sessions as resources itself). `topic` maps to
+  `<subject/>`, `replyTo` to `<thread>`. Bridge-side failures fail the
+  send; there is no silent local-delivery fallback. Local inbox copies of bridge-sent mail
   arrive via the inbound hook, so the two paths never double-deliver.
 
 ## 0.3.0 (2026-10-01)
