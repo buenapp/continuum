@@ -7,6 +7,21 @@ use Continuum\MessageTools;
 use Continuum\Storage\ValKeyStore;
 use Continuum\Storage\ContinuumStorage;
 
+/** Records bridge sends; scripted answers, throws when told. */
+class FakeXmppBridge implements \Continuum\Bridge\XmppBridgeInterface {
+    /** @var array<int,array> */ public array $calls = [];
+    public ?array $answer = null;
+    public ?string $failFor = null;
+    public function send(string $account, string $to, string $body, array $fields): array {
+        $this->calls[] = ['account' => $account, 'to' => $to, 'body' => $body, 'fields' => $fields];
+        if ($this->failFor !== null && str_contains($to, $this->failFor)) {
+            throw new \RuntimeException('bridge unreachable');
+        }
+        return $this->answer ?? ['queued' => true, 'id' => $fields['id'] ?? 'M-BRIDGE01'];
+    }
+    public function health(): array { return []; }
+}
+
 class MessageToolsTest extends TestCase {
 
     protected function setUp(): void {
@@ -280,6 +295,64 @@ class MessageToolsTest extends TestCase {
     public function testSendEpochRequiresControlKind(): void {
         $this->expectException(\InvalidArgumentException::class);
         $this->tools(new FakeRespClient([]))->message_send('sonya', 'hi', null, kind: 'notice', epoch: '7');
+    }
+
+    public function testSendViaBridgeBuildsJidAndSonyaFields(): void {
+        $resp = new FakeRespClient([]);
+        $bridge = new FakeXmppBridge();
+        $tools = new MessageTools(new ContinuumStorage(
+            new ValKeyStore($resp),
+            new FakeCouch([['code' => 200, 'body' => ['uuids' => ['e']]], ['code' => 201, 'body' => []]]),
+            new FakeArcade()
+        ), $bridge, 'xmpp.example.com');
+        $expires = gmdate('c', time() + 600);
+        $result = $tools->message_send('sonya', 'ready', 'coord',
+            session: 'sess-7', kind: 'directive', priority: 'urgent',
+            expires: $expires, replyTo: 'M-11111111');
+        $data = $result->getStructuredContent();
+        $this->assertTrue($data['queued']);
+        $this->assertSame('xmpp-bridge', $data['via']);
+        $call = $bridge->calls[0];
+        // bare-JID targeting: session rides as the resource
+        $this->assertSame('sonya@xmpp.example.com/sess-7', $call['to']);
+        $this->assertSame('test-agent', $call['account']);
+        $this->assertSame('ready', $call['body']);
+        $this->assertSame('directive', $call['fields']['kind']);
+        $this->assertSame('sess-7', $call['fields']['session']);
+        $this->assertSame('urgent', $call['fields']['priority']);
+        $this->assertSame($expires, $call['fields']['expires']);
+        $this->assertSame('M-11111111', $call['fields']['thread']);
+        $this->assertMatchesRegularExpression('/^M-[0-9A-F]{8}$/', $call['fields']['id']);
+        // no local inbox write on the bridge path (only the audit publish)
+        $this->assertNotContains('RPUSH', array_column($resp->calls, 0));
+    }
+
+    public function testSendViaBridgeWithoutDomainFails(): void {
+        $tools = new MessageTools(new ContinuumStorage(
+            new ValKeyStore(new FakeRespClient([])),
+            new FakeCouch([['code' => 200, 'body' => ['uuids' => ['e']]], ['code' => 201, 'body' => []]]),
+            new FakeArcade()
+        ), new FakeXmppBridge(), null);
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/without a domain/');
+        $tools->message_send('sonya', 'hi');
+    }
+
+    public function testBroadcastViaBridgeReportsFailuresIndividually(): void {
+        $resp = new FakeRespClient([['test-agent', 'alice', 'bob']]); // agents
+        $bridge = new FakeXmppBridge();
+        $bridge->failFor = 'bob';
+        $tools = new MessageTools(new ContinuumStorage(
+            new ValKeyStore($resp),
+            new FakeCouch([['code' => 200, 'body' => ['uuids' => ['e']]], ['code' => 201, 'body' => []]]),
+            new FakeArcade()
+        ), $bridge, 'xmpp.example.com');
+        $result = $tools->message_broadcast('freeze');
+        $data = $result->getStructuredContent();
+        $this->assertSame(['alice'], $data['delivered']);
+        $this->assertSame(['bob'], $data['failed']);
+        $this->assertStringContainsString('Failed for: bob', $result->toArray()['content'][0]['text']);
+        $this->assertSame('alice@xmpp.example.com', $bridge->calls[0]['to']);
     }
 
     public function testBroadcastSkipsSelfAndLogsRecipientCount(): void {

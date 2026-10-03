@@ -14,6 +14,14 @@ introduces them (see AGENTS.md). Version parity is enforced between
   path (`message_xmpp_inbound` event type). Only the agent named by
   `[xmpp] bridge_agent` may call it; without that setting the hook
   rejects every call, so the transport stays strictly optional.
+- XMPP outbound (issue #3, second slice): when `[xmpp] socket` and
+  `[xmpp] domain` are set, `message_send`/`message_broadcast` travel
+  over XMPP through the bridge sidecar (`PUT /v1/send` on its unix
+  socket). The agent's JID is `<identity>@<domain>`, a session target
+  becomes the JID resource, `topic` maps to `<subject/>`, `replyTo` to
+  `<thread>`. Bridge-side failures fail the send; there is no silent
+  local-delivery fallback. Local inbox copies of bridge-sent mail
+  arrive via the inbound hook, so the two paths never double-deliver.
 
 ## 0.3.0 (2026-10-01)
 

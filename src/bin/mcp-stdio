@@ -62,7 +62,16 @@ $server->register(new TaskTools($storage));
 $server->register(new LockTools($storage));
 $server->register(new ContextTools($storage));
 $server->register(new AgentTools($storage));
-$server->register(new MessageTools($storage));
+$xmppBridge = null;
+$xmppSocket = trim($SETTINGS?->getString('xmpp', 'socket', '') ?? '');
+$xmppDomain = trim($SETTINGS?->getString('xmpp', 'domain', '') ?? '');
+if ($xmppSocket !== '') {
+    if ($xmppDomain === '') {
+        throw new \RuntimeException('[xmpp] socket is set but [xmpp] domain is empty');
+    }
+    $xmppBridge = new \Continuum\Bridge\XmppBridgeClient($xmppSocket);
+}
+$server->register(new MessageTools($storage, $xmppBridge, $xmppDomain));
 $server->register(new EventTools($storage));
 $server->register(new StatusTools($storage));
 

@@ -9,7 +9,13 @@ Additive: new endpoint `POST /mcp/xmpp-inbound` for the bridge sidecar
 (issue #3). Operators who want the XMPP transport add
 `[xmpp] bridge_agent = <name>` naming which agent key the sidecar
 presents on the hook; unset means the hook refuses everything (existing
-behavior). No other changes.
+behavior).
+
+Outbound: setting `[xmpp] socket` + `[xmpp] domain` routes
+`message_send`/`message_broadcast` through the bridge sidecar over
+XMPP. Leave them unset and delivery stays local-inbox only. Both halves
+are independent: hook-only (receive) or socket-only configurations are
+valid.
 
 ## 0.3.0 (messaging targeting + lease/ack)
 

@@ -152,13 +152,26 @@ if ($heliofaneUrl !== '') {
     );
 }
 
+// XMPP bridge sidecar (issue #3): when a control socket and domain are
+// configured, message_send/message_broadcast go over XMPP and inboxes are
+// fed by the sidecar's inbound hook instead of local delivery.
+$xmppBridge = null;
+$xmppSocket = trim($SETTINGS?->getString('xmpp', 'socket', '') ?? '');
+$xmppDomain = trim($SETTINGS?->getString('xmpp', 'domain', '') ?? '');
+if ($xmppSocket !== '') {
+    if ($xmppDomain === '') {
+        throw new \RuntimeException('[xmpp] socket is set but [xmpp] domain is empty');
+    }
+    $xmppBridge = new \Continuum\Bridge\XmppBridgeClient($xmppSocket);
+}
+
 $server->register(new ServerTools());
 $server->register(new BoardTools($storage));
 $server->register(new TaskTools($storage, $milestoneAdapter));
 $server->register(new LockTools($storage));
 $server->register(new ContextTools($storage, $ranker));
 $server->register(new AgentTools($storage));
-$server->register(new MessageTools($storage));
+$server->register(new MessageTools($storage, $xmppBridge, $xmppDomain));
 $server->register(new EventTools($storage));
 $server->register(new StatusTools($storage));
 // Memory promotion rides a Heliofane bridge; when unconfigured the tool

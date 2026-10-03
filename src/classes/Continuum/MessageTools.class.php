@@ -5,6 +5,7 @@ namespace Continuum;
 use EnchiladaMCP\McpTool;
 use EnchiladaMCP\ToolResult;
 use Continuum\Storage\ContinuumStorage;
+use Continuum\Bridge\XmppBridgeInterface;
 
 /**
  * Agent-to-agent messaging on per-agent inboxes (ValKey lists).
@@ -32,7 +33,11 @@ class MessageTools {
     private const KINDS = ['notice', 'context', 'directive', 'control'];
     private const PRIORITIES = ['normal', 'urgent'];
 
-    public function __construct(private ContinuumStorage $storage) {}
+    public function __construct(
+        private ContinuumStorage $storage,
+        private ?XmppBridgeInterface $xmppBridge = null,
+        private ?string $xmppDomain = null,
+    ) {}
 
     #[McpTool(
         name: 'message_send',
@@ -78,6 +83,9 @@ class MessageTools {
         foreach (['topic' => $topic, 'session' => $session, 'task' => $task, 'kind' => $kind,
                   'priority' => $priority, 'expires' => $expires, 'replyTo' => $replyTo, 'epoch' => $epoch] as $k => $v) {
             if ($v !== null) { $envelope[$k] = $v; }
+        }
+        if ($this->xmppBridge !== null) {
+            return $this->sendViaXmpp($to, $envelope);
         }
         $depth = $this->storage->inboxPush($to, $envelope);
         $this->storage->appendLog(CONTINUUM_AGENT, 'message_send', [
@@ -170,8 +178,22 @@ class MessageTools {
     )]
     public function message_broadcast(string $body, ?string $topic = null): ToolResult {
         $delivered = [];
+        $failed = [];
         foreach ($this->storage->agents() as $agentId) {
             if ($agentId === CONTINUUM_AGENT) { continue; }
+            if ($this->xmppBridge !== null) {
+                try {
+                    $this->xmppBridge->send(CONTINUUM_AGENT, "{$agentId}@{$this->xmppDomain}", $body, [
+                        'id' => self::newMessageId(),
+                        'kind' => 'notice',
+                        ...($topic !== null ? ['topic' => $topic] : []),
+                    ]);
+                    $delivered[] = $agentId;
+                } catch (\RuntimeException) {
+                    $failed[] = $agentId;
+                }
+                continue;
+            }
             $this->storage->inboxPush($agentId, [
                 'id' => self::newMessageId(),
                 'from' => CONTINUUM_AGENT,
@@ -181,17 +203,59 @@ class MessageTools {
             ]);
             $delivered[] = $agentId;
         }
-        $this->storage->appendLog(CONTINUUM_AGENT, 'message_broadcast', ['topic' => $topic, 'recipients' => count($delivered)]);
+        $this->storage->appendLog(CONTINUUM_AGENT, 'message_broadcast', [
+            'topic' => $topic, 'recipients' => count($delivered),
+            'failed' => $failed, 'via' => $this->xmppBridge !== null ? 'xmpp-bridge' : 'local',
+        ]);
         $data = ['delivered' => $delivered, 'count' => count($delivered)];
         $text = $delivered === []
             ? 'Broadcast dropped: no other agents registered.'
             : 'Broadcast to ' . count($delivered) . ' agent(s): ' . implode(', ', $delivered) . '.';
+        if ($failed !== []) {
+            $text .= ' Failed for: ' . implode(', ', $failed) . '.';
+            $data['failed'] = $failed;
+        }
         return ToolResult::structured($text, $data);
     }
 
+    /**
+     * Send through the bridge sidecar (issue #3): the agent's JID is
+     * `to@domain`, and a session target becomes the JID resource (XMPP
+     * resource = session id, per the addressing rules). Local inbox
+     * delivery does not happen here; the recipient's copy arrives through
+     * the bridge's inbound hook (message_xmpp_inbound), so there is no
+     * double delivery on this path. Transport failures fail the call:
+     * silently falling back to a local-only inbox would change the
+     * operator's delivery contract.
+     */
+    private function sendViaXmpp(string $to, array $envelope): ToolResult {
+        $domain = $this->xmppDomain;
+        if ($domain === null || $domain === '') {
+            throw new \RuntimeException('xmpp bridge configured without a domain');
+        }
+        $jid = "{$to}@{$domain}";
+        if (!empty($envelope['session'])) { $jid .= '/' . $envelope['session']; }
+        $fields = [];
+        foreach (['kind', 'session', 'task', 'expires', 'priority', 'epoch'] as $f) {
+            if (isset($envelope[$f])) { $fields[$f] = $envelope[$f]; }
+        }
+        if (isset($envelope['replyTo'])) { $fields['thread'] = $envelope['replyTo']; }
+        $fields['id'] = $envelope['id'];
+        $fields['topic'] = $envelope['topic'] ?? null;
+        $answer = $this->xmppBridge->send(CONTINUUM_AGENT, $jid, $envelope['body'], array_filter($fields));
+        $stanzaId = is_string($answer['id'] ?? null) ? $answer['id'] : $envelope['id'];
+        $this->storage->appendLog(CONTINUUM_AGENT, 'message_send', [
+            'id' => $envelope['id'], 'to' => $to, 'jid' => $jid, 'stanza_id' => $stanzaId, 'via' => 'xmpp-bridge',
+            'session' => $envelope['session'] ?? null, 'task' => $envelope['task'] ?? null,
+            'kind' => $envelope['kind'] ?? null, 'priority' => $envelope['priority'] ?? null,
+            'expires' => $envelope['expires'] ?? null, 'length' => strlen($envelope['body']),
+        ]);
+        $data = ['id' => $stanzaId, 'to' => $to, 'queued' => true, 'depth' => 0, 'via' => 'xmpp-bridge'];
+        return ToolResult::structured("Message {$stanzaId} sent over XMPP to {$jid}.", $data);
+    }
+
     /** A task target resolves to the session bound to it by its claim. */
-    private function resolveTaskSession(string $taskId): string {
-        $task = $this->storage->loadTask($taskId)
+    private function resolveTaskSession(string $taskId): string {        $task = $this->storage->loadTask($taskId)
             ?? throw new \RuntimeException("task {$taskId} not found");
         $session = $task['session'] ?? null;
         if ($session === null || $session === '') {
@@ -246,6 +310,7 @@ class MessageTools {
             'to' => ['type' => 'string'],
             'queued' => ['type' => 'boolean'],
             'depth' => ['type' => 'integer'],
+            'via' => ['type' => 'string'],
         ],
         'required' => ['id', 'to', 'queued', 'depth'],
     ];

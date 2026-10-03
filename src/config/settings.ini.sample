@@ -60,3 +60,9 @@ debug = false
 ; named here; without this section the hook rejects everything.
 ;[xmpp]
 ;bridge_agent = continuum-xmpp-bridge
+;
+; Outbound: when socket + domain are set, message_send/broadcast travel over
+; XMPP via the sidecar instead of local inbox delivery. The agent's JID is
+; <identity>@<domain>; a session target becomes the JID resource.
+;socket = /var/run/continuum-xmpp-bridge.sock
+;domain = xmpp.example.com
