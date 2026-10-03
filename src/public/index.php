@@ -113,6 +113,17 @@ if ($requestUri === '/' && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
     exit;
 }
 
+// XMPP bridge inbound hook (issue #3): the sidecar POSTs received stanzas
+// here; only the configured bridge identity may file mail into inboxes.
+if ($requestUri === '/mcp/xmpp-inbound' && ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
+    $hook = new \Continuum\XmppInbound($storage, $SETTINGS->getString('xmpp', 'bridge_agent', ''));
+    [$code, $resp] = $hook->handle($agentName, json_decode((string)file_get_contents('php://input'), true));
+    http_response_code($code);
+    header('Content-Type: application/json');
+    echo json_encode($resp);
+    exit;
+}
+
 // Milestone sync is adapter-based; only the no-op adapter exists until a
 // tracker integration ships. Unknown values are a hard config error.
 $milestoneAdapter = new NullMilestoneSyncAdapter();

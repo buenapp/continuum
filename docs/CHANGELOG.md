@@ -4,6 +4,17 @@ All notable behavior changes ship in this file alongside the code that
 introduces them (see AGENTS.md). Version parity is enforced between
 `APPLICATION_VERSION`, the FreeBSD port's `DISTVERSION`, and the git tag.
 
+## Unreleased
+
+### Added
+
+- XMPP inbound hook (issue #3, first slice): `POST /mcp/xmpp-inbound`
+  accepts one message stanza as JSON from the bridge sidecar and files
+  it into the target agent's inbox through the normal envelope + audit
+  path (`message_xmpp_inbound` event type). Only the agent named by
+  `[xmpp] bridge_agent` may call it; without that setting the hook
+  rejects every call, so the transport stays strictly optional.
+
 ## 0.3.0 (2026-10-01)
 
 ### Added

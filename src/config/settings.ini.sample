@@ -54,3 +54,9 @@ debug = false
 ; NOTE: bare 'none'/true/false/yes/no parse as booleans — quote it.
 [milestones]
 ;adapter = "none"
+
+; XMPP transport (issue #3), strictly optional. When a bridge sidecar runs,
+; its inbound hook (POST /mcp/xmpp-inbound) must authenticate as the agent
+; named here; without this section the hook rejects everything.
+;[xmpp]
+;bridge_agent = continuum-xmpp-bridge

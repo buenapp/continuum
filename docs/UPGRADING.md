@@ -3,6 +3,14 @@
 Continuum follows semver. `UPGRADING.md` lists everything an operator must
 do when moving between versions; it ships with the code that requires it.
 
+## Unreleased (XMPP inbound hook)
+
+Additive: new endpoint `POST /mcp/xmpp-inbound` for the bridge sidecar
+(issue #3). Operators who want the XMPP transport add
+`[xmpp] bridge_agent = <name>` naming which agent key the sidecar
+presents on the hook; unset means the hook refuses everything (existing
+behavior). No other changes.
+
 ## 0.3.0 (messaging targeting + lease/ack)
 
 No operator action: no new settings keys, no engine schema changes, and
