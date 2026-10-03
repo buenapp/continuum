@@ -20,6 +20,7 @@
 %%WWWDIR%%/classes/Continuum/SubscriptionFeed.class.php
 %%WWWDIR%%/classes/Continuum/TaskResources.class.php
 %%WWWDIR%%/classes/Continuum/TaskTools.class.php
+%%WWWDIR%%/classes/Continuum/XmppInbound.class.php
 %%WWWDIR%%/classes/Continuum/Bridge/EmbeddingProvider.class.php
 %%WWWDIR%%/classes/Continuum/Bridge/EmbeddingRanker.class.php
 %%WWWDIR%%/classes/Continuum/Bridge/HeliofaneMcpBridge.class.php
@@ -27,6 +28,8 @@
 %%WWWDIR%%/classes/Continuum/Bridge/MilestoneSyncAdapterInterface.class.php
 %%WWWDIR%%/classes/Continuum/Bridge/NullMilestoneSyncAdapter.class.php
 %%WWWDIR%%/classes/Continuum/Bridge/RankingProviderInterface.class.php
+%%WWWDIR%%/classes/Continuum/Bridge/XmppBridgeClient.class.php
+%%WWWDIR%%/classes/Continuum/Bridge/XmppBridgeInterface.class.php
 %%WWWDIR%%/classes/Continuum/Storage/ArcadeDBStore.class.php
 %%WWWDIR%%/classes/Continuum/Storage/ContinuumStorage.class.php
 %%WWWDIR%%/classes/Continuum/Storage/ContinuumStorageInterface.class.php
