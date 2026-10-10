@@ -63,9 +63,9 @@ class StatusToolsTest extends TestCase {
         $this->assertCount(1, $status['open_tasks']); // done task excluded
         $this->assertSame('T-1', $status['open_tasks'][0]['task']);
 
-        $this->assertSame('alice', $status['locks']['build']['owner']);
-        $this->assertSame(['proj' => 1, 'global' => 1], $status['boards']);
-        $this->assertSame(['proj' => 1], $status['queues']);
+        $this->assertSame('alice', $status['locks']->build['owner']);
+        $this->assertSame(['proj' => 1, 'global' => 1], (array) $status['boards']);
+        $this->assertSame(['proj' => 1], (array) $status['queues']);
         $this->assertSame('E1', $status['recent_events'][0]['id']);
 
         // dual format: human-first text block with title-leading task lines
@@ -117,7 +117,9 @@ class StatusToolsTest extends TestCase {
         $status = $this->tools($resp, $couch)->board_status()->getStructuredContent();
         $this->assertSame([], $status['agents']);
         $this->assertSame([], $status['open_tasks']);
-        $this->assertSame([], $status['locks']);
-        $this->assertSame([], $status['queues']);
+        // Schema-object fields must encode as {} even when empty.
+        $this->assertSame('{}', json_encode($status['locks']));
+        $this->assertSame('{}', json_encode($status['boards']));
+        $this->assertSame('{}', json_encode($status['queues']));
     }
 }

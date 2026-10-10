@@ -87,7 +87,13 @@ class StatusTools {
             'queues' => $queues,
             'recent_events' => (new EventTools($this->storage))->coordination_event_log(null, 10)->getStructuredContent()['events'] ?? [],
         ];
-        return ToolResult::structured($this->renderText($data), $data);
+        // The schema types these three as objects; an empty PHP array would
+        // serialize to [] and fail client-side output validation.
+        $structured = $data;
+        foreach (['locks', 'boards', 'queues'] as $field) {
+            $structured[$field] = (object) $data[$field];
+        }
+        return ToolResult::structured($this->renderText($data), $structured);
     }
 
     /** Compact markdown rendering of the snapshot for the text block. */
