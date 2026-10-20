@@ -111,7 +111,10 @@ class BoardTools {
         'properties' => [
             'scope' => ['type' => 'string'],
             'key' => ['type' => 'string'],
-            'value' => true,
+            // Must stay an object subschema (never the boolean shorthand
+            // `true`): strict MCP clients reject non-object property
+            // schemas and drop the whole tools/list.
+            'value' => ['description' => 'The stored value (any JSON type).'],
             'updated_by' => ['type' => ['string', 'null']],
             'updated_at' => ['type' => ['string', 'null']],
         ],

@@ -4,6 +4,19 @@ All notable behavior changes ship in this file alongside the code that
 introduces them (see AGENTS.md). Version parity is enforced between
 `APPLICATION_VERSION`, the FreeBSD port's `DISTVERSION`, and the git tag.
 
+## Unreleased
+
+### Fixed
+
+- `blackboard_read` output schema: the `value` property used the JSON
+  Schema boolean shorthand (`true`) instead of an object subschema.
+  Strict clients validating `tools/list` per the MCP TypeScript SDK
+  (every `outputSchema.properties` entry must be an object) discarded
+  the entire tool list, leaving Continuum tool-less in those clients
+  (e.g. the llama.cpp web ui). `value` is now an open object subschema
+  (any JSON type). New `ToolsOutputSchemaTest` guards the wire shape of
+  every advertised output schema.
+
 ## 0.4.0 (2026-10-03)
 
 ### Added
