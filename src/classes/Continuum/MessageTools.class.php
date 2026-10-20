@@ -120,17 +120,20 @@ class MessageTools {
 
     #[McpTool(
         name: 'message_lease',
-        description: 'Lease up to limit (default 20) inbox messages without deleting them: the ones addressed to your session plus untargeted ones. Returns a lease id and expiry; when the lease expires the messages become eligible again, so acknowledge processed messages with message_ack.',
+        description: 'Lease up to limit (default 20) inbox messages without deleting them: the ones addressed to your session plus untargeted ones. Returns a lease id and expiry; when the lease expires the messages become eligible again, so acknowledge processed messages with message_ack. untargeted=false leases only messages addressed to your declared session.',
         idempotentHint: false,
         outputSchema: self::LEASE_SCHEMA
     )]
-    public function message_lease(int $limit = 20, int $ttlSeconds = 60): ToolResult {
+    public function message_lease(int $limit = 20, int $ttlSeconds = 60, bool $untargeted = true): ToolResult {
         if ($limit < 1) { $limit = 1; }
         if ($ttlSeconds < 1 || $ttlSeconds > 3600) {
             throw new \InvalidArgumentException('ttlSeconds must be between 1 and 3600');
         }
         $session = SessionContext::session();
-        $lease = $this->storage->inboxLease(CONTINUUM_AGENT, $session, $limit, $ttlSeconds);
+        if (!$untargeted && $session === null) {
+            throw new \InvalidArgumentException('untargeted=false requires a declared session (params._meta.session)');
+        }
+        $lease = $this->storage->inboxLease(CONTINUUM_AGENT, $session, $limit, $ttlSeconds, $untargeted);
         $messages = $lease['messages'];
         $this->storage->appendLog(CONTINUUM_AGENT, 'message_lease', [
             'lease' => $lease['id'], 'session' => $session, 'count' => count($messages), 'ttl' => $ttlSeconds,

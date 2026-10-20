@@ -6,6 +6,16 @@ introduces them (see AGENTS.md). Version parity is enforced between
 
 ## Unreleased
 
+### Added
+
+- `message_lease` gains an `untargeted` scope flag
+  ([issue #4](https://pacyworld.dev/buenapp/continuum/issues/4)):
+  a session-scoped lease always swept untargeted mail, so with several
+  sessions under one agent identity whichever session leased first took
+  the deployment-level mail ahead of its own. `untargeted` (default
+  true) keeps the current behaviour; `untargeted=false` leases only
+  messages addressed to the declared session and requires one.
+
 ### Fixed
 
 - `blackboard_read` output schema: the `value` property used the JSON
