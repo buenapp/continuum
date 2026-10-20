@@ -208,7 +208,14 @@ class MessageToolsTest extends TestCase {
     }
 
     public function testSendCarriesTargetingFieldsAndId(): void {
-        $resp = new FakeRespClient([2]); // RPUSH -> depth 2
+        $resp = new FakeRespClient([
+            ['bob'],                 // SMEMBERS agents
+            ['heartbeat', '1'],      // HGETALL agent:bob
+            ['sess-1'],              // SMEMBERS agent-sessions:bob
+            ['heartbeat', '1'],      // HGETALL session:bob:sess-1
+            '1',                     // HGET agent:bob heartbeat
+            2,                       // RPUSH -> depth 2
+        ]);
         $expires = gmdate('c', time() + 3600);
         $result = $this->tools($resp)->message_send(
             'bob', 'hello', 'coord',
@@ -218,7 +225,7 @@ class MessageToolsTest extends TestCase {
         $data = $result->getStructuredContent();
         $this->assertTrue($data['queued']);
         $this->assertMatchesRegularExpression('/^M-[0-9A-F]{8}$/', $data['id']);
-        $envelope = json_decode($resp->calls[0][2], true);
+        $envelope = json_decode($resp->calls[5][2], true);
         $this->assertSame($data['id'], $envelope['id']);
         $this->assertSame('sess-1', $envelope['session']);
         $this->assertSame('directive', $envelope['kind']);
@@ -251,19 +258,122 @@ class MessageToolsTest extends TestCase {
         $this->tools($resp)->message_send('bob', 'hi', null, expires: 'not-a-date');
     }
 
-    public function testSendWithTaskResolvesBoundSession(): void {
-        $resp = new FakeRespClient([1]); // RPUSH
+    public function testSendWithTaskTargetsOwnerSession(): void {
+        $resp = new FakeRespClient([
+            ['bob'],                 // SMEMBERS agents
+            ['heartbeat', '1'],      // HGETALL agent:bob
+            ['sess-bound'],          // SMEMBERS agent-sessions:bob
+            ['heartbeat', '1'],      // HGETALL session:bob:sess-bound
+            '1',                     // HGET agent:bob heartbeat
+            1,                       // RPUSH -> depth 1
+        ]);
         $couch = new FakeCouch([
-            ['code' => 200, 'body' => ['_rev' => '1-a', 'title' => 'T', 'session' => 'sess-bound']],
+            ['code' => 200, 'body' => ['_rev' => '1-a', 'title' => 'T', 'owner' => 'bob', 'session' => 'sess-bound']],
+            ['code' => 200, 'body' => ['uuids' => ['ev']]],
+            ['code' => 201, 'body' => []],
+        ]);
+        $tools = new MessageTools(new ContinuumStorage(new ValKeyStore($resp), $couch, new FakeArcade()));
+        $result = $tools->message_send('bob', 'for the task', null, task: 'T-1');
+        $envelope = json_decode($resp->calls[5][2], true);
+        $this->assertSame('sess-bound', $envelope['session']);
+        $this->assertSame('T-1', $envelope['task']);
+        $this->assertTrue($result->getStructuredContent()['queued']);
+        $this->assertStringContainsString("queued to 'bob', session sess-bound (inbox depth 1)", $result->toArray()['content'][0]['text']);
+    }
+
+    public function testSendWithTaskRidesAsReferenceForNonOwner(): void {
+        $resp = new FakeRespClient([1]); // RPUSH; no session derived, no reachability scan
+        $couch = new FakeCouch([
+            ['code' => 200, 'body' => ['_rev' => '1-a', 'title' => 'T', 'owner' => 'claude', 'session' => 'sess-claude-1']],
             ['code' => 200, 'body' => ['uuids' => ['ev']]],
             ['code' => 201, 'body' => []],
         ]);
         $tools = new MessageTools(new ContinuumStorage(new ValKeyStore($resp), $couch, new FakeArcade()));
         $result = $tools->message_send('bob', 'for the task', null, task: 'T-1');
         $envelope = json_decode($resp->calls[0][2], true);
-        $this->assertSame('sess-bound', $envelope['session']);
         $this->assertSame('T-1', $envelope['task']);
+        $this->assertArrayNotHasKey('session', $envelope);
         $this->assertTrue($result->getStructuredContent()['queued']);
+        $text = $result->toArray()['content'][0]['text'];
+        $this->assertStringContainsString("queued to 'bob' (inbox depth 1)", $text);
+        $this->assertStringNotContainsString('session', $text);
+    }
+
+    public function testSendWithTaskHonorsExplicitSessionForNonOwner(): void {
+        $resp = new FakeRespClient([
+            ['claude'],              // SMEMBERS agents
+            ['heartbeat', '1'],      // HGETALL agent:claude
+            ['sess-claude-1'],       // SMEMBERS agent-sessions:claude
+            ['heartbeat', '1'],      // HGETALL session:claude:sess-claude-1
+            '1',                     // HGET agent:claude heartbeat
+            1,                       // RPUSH -> depth 1
+        ]);
+        $couch = new FakeCouch([
+            ['code' => 200, 'body' => ['_rev' => '1-a', 'title' => 'T', 'owner' => 'devin', 'session' => 'sess-devin-1']],
+            ['code' => 200, 'body' => ['uuids' => ['ev']]],
+            ['code' => 201, 'body' => []],
+        ]);
+        $tools = new MessageTools(new ContinuumStorage(new ValKeyStore($resp), $couch, new FakeArcade()));
+        $tools->message_send('claude', 'for the task', null, session: 'sess-claude-1', task: 'T-1');
+        $envelope = json_decode($resp->calls[5][2], true);
+        $this->assertSame('sess-claude-1', $envelope['session']);
+        $this->assertSame('T-1', $envelope['task']);
+    }
+
+    public function testSendRejectsSessionUnreachableInRecipientInbox(): void {
+        $resp = new FakeRespClient([
+            ['claude'],              // SMEMBERS agents
+            ['heartbeat', '1'],      // HGETALL agent:claude
+            ['sess-claude-9'],       // SMEMBERS agent-sessions:claude
+            ['heartbeat', '1'],      // HGETALL session:claude:sess-claude-9
+            '1',                     // HGET agent:claude heartbeat
+        ]);
+        $couch = new FakeCouch([]);
+        $tools = new MessageTools(new ContinuumStorage(new ValKeyStore($resp), $couch, new FakeArcade()));
+        try {
+            $tools->message_send('claude', 'hi', null, session: 'sess-claude-1');
+            $this->fail('expected InvalidArgumentException for an unreachable session target');
+        } catch (\InvalidArgumentException $e) {
+            $this->assertStringContainsString("not held by 'claude'", $e->getMessage());
+        }
+        // the guard fires before any inbox write or audit entry
+        $this->assertNotContains('RPUSH', array_column($resp->calls, 0));
+        $this->assertSame([], $couch->calls);
+    }
+
+    public function testSendAllowsSessionWhenRecipientHasNoSessionPresence(): void {
+        $resp = new FakeRespClient([
+            ['claude'],              // SMEMBERS agents
+            ['heartbeat', '1'],      // HGETALL agent:claude
+            [],                      // SMEMBERS agent-sessions:claude (none published)
+            '1',                     // HGET agent:claude heartbeat
+            1,                       // RPUSH -> depth 1
+        ]);
+        $couch = new FakeCouch([
+            ['code' => 200, 'body' => ['uuids' => ['ev']]],
+            ['code' => 201, 'body' => []],
+        ]);
+        $tools = new MessageTools(new ContinuumStorage(new ValKeyStore($resp), $couch, new FakeArcade()));
+        $result = $tools->message_send('claude', 'hi', null, session: 'sess-claude-1');
+        $envelope = json_decode($resp->calls[4][2], true);
+        $this->assertSame('sess-claude-1', $envelope['session']);
+        $this->assertTrue($result->getStructuredContent()['queued']);
+    }
+
+    public function testSendWithTaskViaBridgeOmitsSessionForNonOwner(): void {
+        $resp = new FakeRespClient([]);
+        $bridge = new FakeXmppBridge();
+        $couch = new FakeCouch([
+            ['code' => 200, 'body' => ['_rev' => '1-a', 'title' => 'T', 'owner' => 'devin', 'session' => 'sess-devin-1']],
+            ['code' => 200, 'body' => ['uuids' => ['e']]],
+            ['code' => 201, 'body' => []],
+        ]);
+        $tools = new MessageTools(new ContinuumStorage(new ValKeyStore($resp), $couch, new FakeArcade()), $bridge, 'xmpp.example.com');
+        $tools->message_send('claude', 'for the task', null, task: 'T-1');
+        $call = $bridge->calls[0];
+        $this->assertSame('claude@xmpp.example.com', $call['to']);
+        $this->assertSame('T-1', $call['fields']['task']);
+        $this->assertArrayNotHasKey('session', $call['fields']);
     }
 
     public function testSendWithUnknownTaskFails(): void {
@@ -275,9 +385,9 @@ class MessageToolsTest extends TestCase {
         $tools->message_send('bob', 'for the task', null, task: 'T-NOPE');
     }
 
-    public function testSendWithUnboundTaskFails(): void {
+    public function testSendWithUnboundTaskFailsForOwner(): void {
         $couch = new FakeCouch([
-            ['code' => 200, 'body' => ['_rev' => '1-a', 'title' => 'T']], // no session key
+            ['code' => 200, 'body' => ['_rev' => '1-a', 'title' => 'T', 'owner' => 'bob']], // no session key
         ]);
         $tools = new MessageTools(new ContinuumStorage(new ValKeyStore(new FakeRespClient([])), $couch, new FakeArcade()));
         $this->expectException(\RuntimeException::class);
