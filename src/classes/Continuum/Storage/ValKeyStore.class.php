@@ -191,22 +191,24 @@ class ValKeyStore {
     }
 
     /**
-     * Lease up to $limit messages eligible for $session (untargeted plus
-     * ones addressed to it), oldest first. Leased messages are marked
-     * in place until $ttlSeconds pass; an expired lease makes a message
-     * eligible again. Returns ['id', 'expires_at', 'messages'].
+     * Lease up to $limit messages eligible for $session, oldest first:
+     * ones addressed to the session, plus untargeted ones unless
+     * $includeUntargeted is false. Leased messages are marked in place
+     * until $ttlSeconds pass; an expired lease makes a message eligible
+     * again. Returns ['id', 'expires_at', 'messages'].
      */
-    public function inboxLease(string $agentId, ?string $session, int $limit, int $ttlSeconds, int $now): array {
+    public function inboxLease(string $agentId, ?string $session, int $limit, int $ttlSeconds, int $now, bool $includeUntargeted = true): array {
         $leaseId = 'L-' . strtoupper(bin2hex(random_bytes(4)));
         $until = $now + $ttlSeconds;
-        $messages = $this->inboxRewrite($agentId, function (array $entries) use ($session, $limit, $now, $until, $leaseId) {
+        $messages = $this->inboxRewrite($agentId, function (array $entries) use ($session, $limit, $now, $until, $leaseId, $includeUntargeted) {
             $kept = [];
             $taken = [];
             foreach ($entries as $e) {
                 if (self::isExpired($e, $now)) { continue; }
                 if (self::leaseActive($e, $now)) { $kept[] = $e; continue; }
                 $e = self::stripLease($e); // a dead lease returns the message
-                $eligible = empty($e['session']) || ($session !== null && ($e['session'] ?? null) === $session);
+                $targeted = ($session !== null && ($e['session'] ?? null) === $session);
+                $eligible = $includeUntargeted ? ($targeted || empty($e['session'])) : $targeted;
                 if ($eligible && count($taken) < $limit) {
                     $e['lease'] = $leaseId;
                     $e['lease_until'] = $until;

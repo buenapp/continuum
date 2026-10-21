@@ -172,9 +172,9 @@ class ContinuumStorage implements ContinuumStorageInterface {
     public function inboxPush(string $agentId, array $message): int {
         return $this->valkey->inboxPush($agentId, $message);
     }
-    /** Lease up to $limit messages for $session (null reads untargeted only). */
-    public function inboxLease(string $agentId, ?string $session, int $limit, int $ttlSeconds): array {
-        return $this->valkey->inboxLease($agentId, $session, $limit, $ttlSeconds, time());
+    /** Lease up to $limit messages for $session (null reads untargeted only); $includeUntargeted=false skips untargeted mail. */
+    public function inboxLease(string $agentId, ?string $session, int $limit, int $ttlSeconds, bool $includeUntargeted = true): array {
+        return $this->valkey->inboxLease($agentId, $session, $limit, $ttlSeconds, time(), $includeUntargeted);
     }
     /** Acknowledge (delete) inbox messages by id; returns the removed ids. */
     public function inboxAck(string $agentId, array $ids): array {

@@ -160,6 +160,61 @@ class MessageToolsTest extends TestCase {
         $this->assertSame('open', $data['messages'][0]['body']);
     }
 
+    public function testLeaseUntargetedFalseScopesToDeclaredSession(): void {
+        \Continuum\SessionContext::setDeclared('sess-a');
+        $resp = new FakeRespClient([
+            'OK',
+            [
+                json_encode(['id' => 'M-U1', 'from' => 'x', 'body' => 'for-a', 'session' => 'sess-a']),
+                json_encode(['id' => 'M-U2', 'from' => 'x', 'body' => 'for-b', 'session' => 'sess-b']),
+                json_encode(['id' => 'M-U3', 'from' => 'x', 'body' => 'open']),
+            ],
+            'OK', 'QUEUED', 'QUEUED', [1, 3],
+        ]);
+        $result = $this->tools($resp)->message_lease(10, 60, untargeted: false);
+        $data = $result->getStructuredContent();
+        $this->assertSame(1, $data['count']);
+        $this->assertSame('for-a', $data['messages'][0]['body']);
+        // rewrite keeps the other two in place, unmarked
+        $this->assertSame('RPUSH', $resp->calls[4][0]);
+        $kept = array_map(fn($j) => json_decode($j, true), array_slice($resp->calls[4], 2));
+        $byId = array_column($kept, null, 'id');
+        $this->assertSame($data['lease'], $byId['M-U1']['lease']);
+        $this->assertArrayNotHasKey('lease', $byId['M-U2']);
+        $this->assertArrayNotHasKey('lease', $byId['M-U3']);
+    }
+
+    public function testLeaseDefaultStillTakesUntargetedForSession(): void {
+        \Continuum\SessionContext::setDeclared('sess-a');
+        $resp = new FakeRespClient([
+            'OK',
+            [
+                json_encode(['id' => 'M-V1', 'from' => 'x', 'body' => 'for-a', 'session' => 'sess-a']),
+                json_encode(['id' => 'M-V2', 'from' => 'x', 'body' => 'for-b', 'session' => 'sess-b']),
+                json_encode(['id' => 'M-V3', 'from' => 'x', 'body' => 'open']),
+            ],
+            'OK', 'QUEUED', 'QUEUED', [1, 3],
+        ]);
+        $result = $this->tools($resp)->message_lease(10, 60);
+        $data = $result->getStructuredContent();
+        $this->assertSame(['for-a', 'open'], array_column($data['messages'], 'body'));
+        $kept = array_map(fn($j) => json_decode($j, true), array_slice($resp->calls[4], 2));
+        $byId = array_column($kept, null, 'id');
+        $this->assertArrayNotHasKey('lease', $byId['M-V2']);
+    }
+
+    public function testLeaseUntargetedFalseRequiresDeclaredSession(): void {
+        $resp = new FakeRespClient([]);
+        try {
+            $this->tools($resp)->message_lease(10, 60, untargeted: false);
+            $this->fail('expected InvalidArgumentException without a declared session');
+        } catch (\InvalidArgumentException $e) {
+            $this->assertStringContainsString('declared session', $e->getMessage());
+        }
+        // validation runs before any storage command
+        $this->assertSame([], $resp->calls);
+    }
+
     public function testLeaseEmptyInboxWritesNothing(): void {
         $resp = new FakeRespClient(['OK', []]);
         $result = $this->tools($resp)->message_lease();
