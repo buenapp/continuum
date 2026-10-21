@@ -18,6 +18,11 @@ introduces them (see AGENTS.md). Version parity is enforced between
 
 ### Fixed
 
+- `ContinuumStorageInterface::inboxLease` now declares the
+  `$includeUntargeted` flag (defaulted) that `ContinuumStorage` already
+  implements; PHP silently ignores surplus call arguments, so a
+  4-arg-conformant implementation would have dropped the flag without
+  any error.
 - `message_send` task targeting
   ([issue #7](https://pacyworld.dev/buenapp/continuum/issues/7)): a
   `task` target resolved to the session bound to the task's claim even
