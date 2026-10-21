@@ -71,7 +71,8 @@ if ($xmppSocket !== '') {
     }
     $xmppBridge = new \Continuum\Bridge\XmppBridgeClient($xmppSocket);
 }
-$server->register(new MessageTools($storage, $xmppBridge, $xmppDomain));
+$signKeyFile = trim($SETTINGS?->getString('identity', 'sign_key_file', '') ?? '');
+$server->register(new MessageTools($storage, $xmppBridge, $xmppDomain, $signKeyFile !== '' ? $signKeyFile : null));
 $server->register(new EventTools($storage));
 $server->register(new StatusTools($storage));
 

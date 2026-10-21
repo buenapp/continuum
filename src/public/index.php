@@ -171,7 +171,8 @@ $server->register(new TaskTools($storage, $milestoneAdapter));
 $server->register(new LockTools($storage));
 $server->register(new ContextTools($storage, $ranker));
 $server->register(new AgentTools($storage));
-$server->register(new MessageTools($storage, $xmppBridge, $xmppDomain));
+$signKeyFile = trim($SETTINGS?->getString('identity', 'sign_key_file', '') ?? '');
+$server->register(new MessageTools($storage, $xmppBridge, $xmppDomain, $signKeyFile !== '' ? $signKeyFile : null));
 $server->register(new EventTools($storage));
 $server->register(new StatusTools($storage));
 // Memory promotion rides a Heliofane bridge; when unconfigured the tool

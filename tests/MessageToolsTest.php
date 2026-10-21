@@ -2,7 +2,11 @@
 
 namespace Continuum\Tests;
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use EnchiladaMCP\ToolRegistry;
+use Continuum\Identity\Envelope;
+use Continuum\Identity\Verify;
 use Continuum\MessageTools;
 use Continuum\Storage\ValKeyStore;
 use Continuum\Storage\ContinuumStorage;
@@ -24,14 +28,22 @@ class FakeXmppBridge implements \Continuum\Bridge\XmppBridgeInterface {
 
 class MessageToolsTest extends TestCase {
 
+    /** Fresh attestation keypair per test, written raw to a temp file. */
+    private string $signKeypair;
+    private string $signKeyFile;
+
     protected function setUp(): void {
         \Continuum\SessionContext::set(null);
         \Continuum\SessionContext::setDeclared(null);
+        $this->signKeypair = sodium_crypto_sign_keypair();
+        $this->signKeyFile = tempnam(sys_get_temp_dir(), 'continuum-sign-');
+        file_put_contents($this->signKeyFile, $this->signKeypair);
     }
 
     protected function tearDown(): void {
         \Continuum\SessionContext::set(null);
         \Continuum\SessionContext::setDeclared(null);
+        @unlink($this->signKeyFile);
     }
 
     private function tools(FakeRespClient $resp): MessageTools {
@@ -537,5 +549,149 @@ class MessageToolsTest extends TestCase {
         $this->assertStringContainsString('Broadcast to 2 agent(s): alice, bob', $result->toArray()['content'][0]['text']);
         // event records recipients, not sender
         $this->assertSame(2, $couch->calls[1]['data']['data']['recipients']);
+    }
+
+    // --- identity fields (issue #6, docs/IDENTITY.md)
+
+    public function testSendCarriesSigAndCertUnchanged(): void {
+        $resp = new FakeRespClient([1]); // RPUSH
+        $sig = base64_encode(random_bytes(SODIUM_CRYPTO_SIGN_BYTES));
+        $cert = base64_encode('{"stub":"cert"}');
+        $this->tools($resp)->message_send('bob', 'hello', null, sig: $sig, cert: $cert);
+        $envelope = json_decode($resp->calls[0][2], true);
+        $this->assertSame($sig, $envelope['sig']);
+        $this->assertSame($cert, $envelope['cert']);
+    }
+
+    #[DataProvider('malformedCarrierCases')]
+    public function testSendRejectsMalformedIdentityMaterial(?string $sig, ?string $cert): void {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->tools(new FakeRespClient([]))->message_send('bob', 'hi', null, sig: $sig, cert: $cert);
+    }
+
+    public static function malformedCarrierCases(): array {
+        return [
+            'empty sig' => ['' , null],
+            'non-base64 sig' => ['not base64!!', null],
+            'empty cert' => [null, ''],
+            'non-base64 cert' => [null, '***'],
+        ];
+    }
+
+    public function testSendWithoutKeyFileLeavesEnvelopeUnchanged(): void {
+        $resp = new FakeRespClient([1]);
+        $this->tools($resp)->message_send('bob', 'hello', 'coord');
+        $envelope = json_decode($resp->calls[0][2], true);
+        $this->assertSame(['id', 'from', 'body', 'ts', 'topic'], array_keys($envelope));
+        foreach (['sig', 'cert', 'attest'] as $field) {
+            $this->assertArrayNotHasKey($field, $envelope);
+        }
+    }
+
+    public function testSendAttestsWhenKeyFileConfigured(): void {
+        $resp = new FakeRespClient([1]);
+        $tools = new MessageTools(new ContinuumStorage(new ValKeyStore($resp), $this->couch(), new FakeArcade()), null, null, $this->signKeyFile);
+        $tools->message_send('bob', 'hello', 'coord');
+        $envelope = json_decode($resp->calls[0][2], true);
+        $this->assertArrayHasKey('attest', $envelope);
+        $result = Verify::envelope($envelope + ['to' => 'bob'], $this->continuumDoc());
+        $this->assertSame(
+            ['level' => 'attested', 'valid' => true, 'workstream' => 'test-agent', 'session' => null, 'reason' => null],
+            $result
+        );
+    }
+
+    public function testSendAttestationClaimsDeclaredSession(): void {
+        $resp = new FakeRespClient([
+            ['bob'],                 // SMEMBERS agents
+            ['heartbeat', '1'],      // HGETALL agent:bob
+            ['sess-1'],              // SMEMBERS agent-sessions:bob
+            ['heartbeat', '1'],      // HGETALL session:bob:sess-1
+            '1',                     // HGET agent:bob heartbeat
+            1,                       // RPUSH
+        ]);
+        $tools = new MessageTools(new ContinuumStorage(new ValKeyStore($resp), $this->couch(), new FakeArcade()), null, null, $this->signKeyFile);
+        $tools->message_send('bob', 'hello', null, session: 'sess-1');
+        $envelope = json_decode($resp->calls[5][2], true);
+        $result = Verify::envelope($envelope + ['to' => 'bob'], $this->continuumDoc());
+        $this->assertTrue($result['valid']);
+        $this->assertSame('sess-1', $result['session']);
+    }
+
+    public function testSendAttestationCoversSigAndCert(): void {
+        $resp = new FakeRespClient([1]);
+        $tools = new MessageTools(new ContinuumStorage(new ValKeyStore($resp), $this->couch(), new FakeArcade()), null, null, $this->signKeyFile);
+        $sig = base64_encode(random_bytes(SODIUM_CRYPTO_SIGN_BYTES));
+        $cert = base64_encode('{"stub":"cert"}');
+        $tools->message_send('bob', 'hello', null, sig: $sig, cert: $cert);
+        $envelope = json_decode($resp->calls[0][2], true);
+        $key = sodium_crypto_sign_publickey($this->signKeypair);
+        $this->assertTrue(sodium_crypto_sign_verify_detached(
+            base64_decode($envelope['attest']),
+            Envelope::canonical(Envelope::attestCovered($envelope + ['to' => 'bob'], 'test-agent')),
+            $key
+        ));
+        // the carriers participate: the same attest fails without them
+        $stripped = $envelope;
+        unset($stripped['sig'], $stripped['cert']);
+        $this->assertFalse(sodium_crypto_sign_verify_detached(
+            base64_decode($envelope['attest']),
+            Envelope::canonical(Envelope::attestCovered($stripped + ['to' => 'bob'], 'test-agent')),
+            $key
+        ));
+    }
+
+    public function testSendViaBridgeCarriesSigCertAttest(): void {
+        $resp = new FakeRespClient([]);
+        $bridge = new FakeXmppBridge();
+        $tools = new MessageTools(new ContinuumStorage(new ValKeyStore($resp), $this->couch(), new FakeArcade()), $bridge, 'xmpp.example.com', $this->signKeyFile);
+        $sig = base64_encode(random_bytes(SODIUM_CRYPTO_SIGN_BYTES));
+        $cert = base64_encode('{"stub":"cert"}');
+        $tools->message_send('sonya', 'ready', null, sig: $sig, cert: $cert);
+        $fields = $bridge->calls[0]['fields'];
+        $this->assertSame($sig, $fields['sig']);
+        $this->assertSame($cert, $fields['cert']);
+        $this->assertArrayHasKey('attest', $fields);
+    }
+
+    public function testMessageSchemaCarriesIdentityFieldsAndStaysLegacyValid(): void {
+        $registry = new ToolRegistry();
+        $registry->register(new MessageTools(new ContinuumStorage(
+            new ValKeyStore(new FakeRespClient([])), new FakeCouch([]), new FakeArcade()
+        )));
+        $checked = 0;
+        foreach ($registry->listTools() as $tool) {
+            if (!in_array($tool['name'], ['message_inbox_pull', 'message_lease'], true)) { continue; }
+            $checked++;
+            $items = $tool['outputSchema']['properties']['messages']['items'];
+            foreach (['sig', 'cert', 'attest'] as $field) {
+                $this->assertIsArray($items['properties'][$field], "{$tool['name']}.{$field} must be an object subschema");
+                $this->assertSame('string', $items['properties'][$field]['type']);
+            }
+            // a legacy envelope keeps validating against the message schema
+            foreach (['id' => 'M-1', 'from' => 'a', 'body' => 'b', 'ts' => 'now'] as $key => $value) {
+                $this->assertIsString($value);
+                $this->assertArrayHasKey($key, $items['properties']);
+                $this->assertSame('string', $items['properties'][$key]['type']);
+            }
+        }
+        $this->assertSame(2, $checked);
+    }
+
+    private function couch(): FakeCouch {
+        return new FakeCouch([['code' => 200, 'body' => ['uuids' => ['e']]], ['code' => 201, 'body' => []]]);
+    }
+
+    /** Registry record for the attestation key, in the contract shape. */
+    private function continuumDoc(): array {
+        return [
+            '_id' => 'continuum',
+            '_rev' => '1-2b',
+            'pubkey' => base64_encode(sodium_crypto_sign_publickey($this->signKeypair)),
+            'status' => 'active',
+            'created_at' => '2026-10-20T00:00:00+00:00',
+            'rotated_at' => null,
+            'revoked_at' => null,
+        ];
     }
 }

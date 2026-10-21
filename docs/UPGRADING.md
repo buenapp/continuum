@@ -3,6 +3,24 @@
 Continuum follows semver. `UPGRADING.md` lists everything an operator must
 do when moving between versions; it ships with the code that requires it.
 
+## Unreleased (signed envelopes + attestation)
+
+Additive; no required operator action. Client-visible surface:
+
+- `message_send` accepts optional `sig` and `cert` (opaque base64
+  identity material, stored and returned unchanged).
+- `message_lease`/`message_inbox_pull` messages may carry `sig`,
+  `cert` and `attest`; envelopes without them are unchanged.
+
+New optional setting `[identity] sign_key_file` naming a file with raw
+sodium Ed25519 key material (64-byte secret key or 96-byte
+`sodium_crypto_sign_keypair()` keypair). When set, every `message_send`
+attaches `attest`, a signature over the canonical envelope plus the
+authenticated workstream; publish the matching public key in the
+identity registry as workstream `continuum` so receivers can pin it.
+Leave it unset and sends behave exactly as before. See
+`docs/IDENTITY.md` for the byte-exact spec and verification rules.
+
 ## 0.4.1 (messaging hardening + strict-client schema fix)
 
 No operator action: no new settings keys, no engine schema changes.
