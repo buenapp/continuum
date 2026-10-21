@@ -1,0 +1,245 @@
+#!/usr/bin/env php
+<?php
+/**
+ * Continuum - Identity Registry Administration
+ *
+ * Operator CLI for workstream identity records (issue #6) and the only
+ * writer of the 'identities' registry; the MCP resource surface
+ * (continuum://identities) is read-only and there are no registry write
+ * tools in v1.
+ *
+ * The server never touches workstream private keys: keygen writes the
+ * raw 64-byte Ed25519 secret key (libsodium seed || public key, the
+ * sodium_crypto_sign_detached input) to --out for the operator to store
+ * in a secret store, and prints only the public key.
+ *
+ * Usage:
+ *   php bin/identity-admin keygen <workstream> --out PATH
+ *   php bin/identity-admin register <workstream> --pubkey BASE64
+ *   php bin/identity-admin rotate <workstream> --pubkey BASE64
+ *   php bin/identity-admin revoke <workstream>
+ *   php bin/identity-admin list
+ *
+ * Exits 0 on success, 1 on error, 2 on usage errors.
+ */
+
+chdir(__DIR__ . '/..');
+require_once 'includes/bootstrap.inc.php';
+
+use Continuum\Storage\ContinuumStorage;
+
+const USAGE = "usage: identity-admin keygen <workstream> --out PATH\n"
+    . "       identity-admin register <workstream> --pubkey BASE64\n"
+    . "       identity-admin rotate <workstream> --pubkey BASE64\n"
+    . "       identity-admin revoke <workstream>\n"
+    . "       identity-admin list\n";
+
+/** Error out with a message on stderr; exit 2 is reserved for usage. */
+function fail(string $message, int $code = 1): never {
+    fwrite(STDERR, "identity-admin: {$message}\n");
+    exit($code);
+}
+
+function usage(): never {
+    fwrite(STDERR, USAGE);
+    exit(2);
+}
+
+/**
+ * A workstream doubles as the registry doc id and a resource URI segment
+ * (continuum://identities/{workstream}); keep it a single safe token.
+ */
+function checkWorkstream(string $workstream): string {
+    if (!preg_match('/^[A-Za-z0-9][A-Za-z0-9._-]*$/', $workstream)) {
+        fail("workstream '{$workstream}' is invalid: start with [A-Za-z0-9]; only letters, digits, '.', '_' and '-' allowed", 2);
+    }
+    return $workstream;
+}
+
+/** base64 of a raw 32-byte Ed25519 public key, normalized to plain base64. */
+function decodePubkey(string $encoded): string {
+    $raw = base64_decode($encoded, true);
+    if ($raw === false || strlen($raw) !== 32) {
+        fail('pubkey must be base64 of a raw 32-byte Ed25519 public key', 2);
+    }
+    return base64_encode($raw);
+}
+
+/** Registry access for the commands that need storage; keygen stays offline. */
+function registry(): ContinuumStorage {
+    global $SETTINGS;
+    return ContinuumStorage::fromSettings($SETTINGS);
+}
+
+function listIdentities(ContinuumStorage $storage): void {
+    $docs = $storage->listIdentities();
+    ksort($docs);
+    if ($docs === []) {
+        echo "no identities registered\n";
+        return;
+    }
+    $rows = [];
+    foreach ($docs as $workstream => $doc) {
+        $doc = (array)$doc;
+        $pubkey = (string)($doc['pubkey'] ?? '');
+        $rows[] = [
+            (string)$workstream,
+            (string)($doc['status'] ?? '-'),
+            $pubkey === '' ? '-' : substr($pubkey, 0, 12) . '...',
+            (string)($doc['created_at'] ?? '-'),
+            (string)($doc['rotated_at'] ?? '-'),
+            (string)($doc['revoked_at'] ?? '-'),
+        ];
+    }
+    $header = ['workstream', 'status', 'pubkey', 'created_at', 'rotated_at', 'revoked_at'];
+    $widths = [];
+    foreach ($header as $col => $name) {
+        $widths[$col] = max(strlen($name), ...array_map(fn($row) => strlen($row[$col]), $rows));
+    }
+    $format = rtrim(implode('  ', array_map(fn($w) => "%-{$w}s", $widths))) . "\n";
+    echo sprintf($format, ...$header);
+    foreach ($rows as $row) {
+        echo sprintf($format, ...$row);
+    }
+}
+
+$args = array_slice($argv, 1);
+$command = array_shift($args) ?? '';
+$options = [];
+$positional = [];
+for ($i = 0; $i < count($args); $i++) {
+    $arg = $args[$i];
+    if (preg_match('/^--([a-z]+)=(.*)$/', $arg, $m)) {
+        $options[$m[1]] = $m[2];
+        continue;
+    }
+    if (str_starts_with($arg, '--')) {
+        $name = substr($arg, 2);
+        $value = $args[$i + 1] ?? null;
+        if ($value === null || str_starts_with($value, '--')) {
+            fail("--{$name} needs a value", 2);
+        }
+        $options[$name] = $value;
+        $i++;
+        continue;
+    }
+    $positional[] = $arg;
+}
+if (count($positional) > 1) {
+    fail('unexpected argument ' . $positional[1], 2);
+}
+
+if (!in_array($command, ['keygen', 'register', 'rotate', 'revoke', 'list'], true)) {
+    fail($command === '' ? "missing command\n" . USAGE : "unknown command '{$command}'\n" . USAGE, 2);
+}
+$allowedOptions = [
+    'keygen' => ['out'],
+    'register' => ['pubkey'],
+    'rotate' => ['pubkey'],
+    'revoke' => [],
+    'list' => [],
+];
+foreach (array_keys($options) as $name) {
+    if (!in_array($name, $allowedOptions[$command], true)) {
+        fail("--{$name} is not an option of '{$command}'", 2);
+    }
+}
+if ($command === 'list') {
+    if ($positional !== []) {
+        fail('unexpected argument ' . $positional[0], 2);
+    }
+    $workstream = '';
+} else {
+    $workstream = checkWorkstream($positional[0] ?? '');
+}
+
+try {
+    switch ($command) {
+        case 'keygen':
+            if (!function_exists('sodium_crypto_sign_keypair')) {
+                fail('ext-sodium is required for keygen');
+            }
+            $out = $options['out'] ?? fail('--out is required for keygen', 2);
+            // ext-sodium's keypair blob is 96 bytes (sk 64 || pk 32); the
+            // contract's 64-byte key file is the secret key half, which is
+            // what sodium_crypto_sign_detached consumes directly.
+            $keypair = sodium_crypto_sign_keypair();
+            $secretkey = substr($keypair, 0, SODIUM_CRYPTO_SIGN_SECRETKEYBYTES);
+            $pubkey = sodium_crypto_sign_publickey_from_secretkey($secretkey);
+            if (substr($keypair, -SODIUM_CRYPTO_SIGN_PUBLICKEYBYTES) !== $pubkey) {
+                fail('unexpected sodium keypair layout; refusing to write a mismatched key file');
+            }
+            $fp = @fopen($out, 'x');
+            if ($fp === false) {
+                fail(file_exists($out) ? "refusing to overwrite existing file {$out}" : "cannot create {$out}");
+            }
+            chmod($out, 0600);
+            fwrite($fp, $secretkey);
+            fclose($fp);
+            fwrite(STDERR, "wrote raw 64-byte Ed25519 secret key for workstream '{$workstream}' to {$out} (mode 0600); keep it in a secret store\n");
+            echo base64_encode($pubkey), "\n";
+            break;
+
+        case 'register':
+            $pubkey = decodePubkey($options['pubkey'] ?? fail('--pubkey is required for register', 2));
+            $storage = registry();
+            $existing = $storage->loadIdentity($workstream);
+            if ($existing !== null) {
+                fail("identity '{$workstream}' is already registered (status " . ($existing['status'] ?? '?') . '); use rotate or revoke');
+            }
+            $storage->saveIdentity($workstream, [
+                'pubkey' => $pubkey,
+                'status' => 'active',
+                'created_at' => gmdate('c'),
+                'rotated_at' => null,
+                'revoked_at' => null,
+            ]);
+            echo "registered identity '{$workstream}' (status active)\n";
+            break;
+
+        case 'rotate':
+            $pubkey = decodePubkey($options['pubkey'] ?? fail('--pubkey is required for rotate', 2));
+            $storage = registry();
+            $existing = $storage->loadIdentity($workstream);
+            if ($existing === null) {
+                fail("identity '{$workstream}' is not registered; use register");
+            }
+            // Rotation re-activates: the record describes the current key.
+            $storage->saveIdentity($workstream, [
+                'pubkey' => $pubkey,
+                'status' => 'active',
+                'created_at' => is_string($existing['created_at'] ?? null) ? $existing['created_at'] : gmdate('c'),
+                'rotated_at' => gmdate('c'),
+                'revoked_at' => null,
+            ], $existing['_rev'] ?? null);
+            echo "rotated identity '{$workstream}' (status active)\n";
+            break;
+
+        case 'revoke':
+            $storage = registry();
+            $existing = $storage->loadIdentity($workstream);
+            if ($existing === null) {
+                fail("identity '{$workstream}' is not registered");
+            }
+            if (($existing['status'] ?? '') === 'revoked') {
+                fail("identity '{$workstream}' is already revoked since " . ($existing['revoked_at'] ?? 'an unknown time'));
+            }
+            // The record is kept: receivers must still verify certificates
+            // signed before revocation and reject them by not_after.
+            $storage->saveIdentity($workstream, [
+                'pubkey' => $existing['pubkey'] ?? null,
+                'status' => 'revoked',
+                'created_at' => $existing['created_at'] ?? null,
+                'rotated_at' => $existing['rotated_at'] ?? null,
+                'revoked_at' => gmdate('c'),
+            ], $existing['_rev'] ?? null);
+            echo "revoked identity '{$workstream}'; record kept for pre-revocation certificate checks\n";
+            break;
+
+        case 'list':
+            listIdentities(registry());
+            break;
+    }
+} catch (\Throwable $e) {
+    fail($e->getMessage());
+}

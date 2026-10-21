@@ -42,6 +42,9 @@ interface ContinuumStorageInterface {
     // --- Durable (CouchDB)
     public function savePlan(string $planId, array $plan, ?string $rev = null): array;
     public function loadPlan(string $planId): ?array;
+    public function saveIdentity(string $workstream, array $identity, ?string $rev = null): array;
+    public function loadIdentity(string $workstream): ?array;
+    public function listIdentities(): array;   // workstream => doc
     public function saveTask(string $taskId, array $task, ?string $rev = null): array;
     public function loadTask(string $taskId): ?array;
     public function listTaskIds(): array;

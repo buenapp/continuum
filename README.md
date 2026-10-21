@@ -25,7 +25,7 @@ Beyond tools, the modern (2026-07-28) MCP surface:
 
 | Capability | What you get |
 |---|---|
-| Resources | URI-addressable reads: `continuum://board/index`, `continuum://board/{scope}/{key}`, `continuum://snapshot/{scope}`, `continuum://tasks` and `continuum://tasks/{id}`, `continuum://agents[/{id}]`, `continuum://locks[/{name}]`, `continuum://events[/since/{ts}]`, `continuum://context/pack/{scope}` (markdown brief). Per-read `lastModified` annotations; live data, no caching |
+| Resources | URI-addressable reads: `continuum://board/index`, `continuum://board/{scope}/{key}`, `continuum://snapshot/{scope}`, `continuum://tasks` and `continuum://tasks/{id}`, `continuum://agents[/{id}]`, `continuum://locks[/{name}]`, `continuum://events[/since/{ts}]`, `continuum://identities[/{workstream}]`, `continuum://context/pack/{scope}` (markdown brief). Per-read `lastModified` annotations; live data, no caching |
 | Prompts | `session_bootstrap`, `claim_and_serve`, `handoff`, `milestone_sync` — the coordination contract as selectable templates |
 | Completion | `completion/complete` fills prompt arguments and resource placeholders with live scopes, task ids, board keys, agent ids, lock names |
 | Subscriptions | `subscriptions/listen` streams `notifications/resources/updated` as mutations land (change fan-out over ValKey pub/sub) |
