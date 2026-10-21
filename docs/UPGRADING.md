@@ -3,6 +3,19 @@
 Continuum follows semver. `UPGRADING.md` lists everything an operator must
 do when moving between versions; it ships with the code that requires it.
 
+## 0.4.1 (messaging hardening + strict-client schema fix)
+
+No operator action: no new settings keys, no engine schema changes.
+
+Client-visible behavior changes to know about:
+
+- `message_send`: a `task` target now inherits the task's bound session
+  only when the recipient is the task's owner; sends carrying a session
+  target are refused when the recipient has published session presence
+  that does not include it (issue #7).
+- `message_lease` accepts an optional `untargeted` flag (default true;
+  unchanged behavior when omitted) (issue #4).
+
 ## 0.4.0 (XMPP transport)
 
 Additive: new endpoint `POST /mcp/xmpp-inbound` for the bridge sidecar
