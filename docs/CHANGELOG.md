@@ -8,6 +8,17 @@ introduces them (see AGENTS.md). Version parity is enforced between
 
 ### Fixed
 
+- `message_send` task targeting
+  ([issue #7](https://pacyworld.dev/buenapp/continuum/issues/7)): a
+  `task` target resolved to the session bound to the task's claim even
+  when `to` was a different agent, storing a session-targeted envelope
+  that no session on the recipient could lease. The bound session is
+  now derived only when `to` is the task's owner; otherwise the task
+  rides as a reference and an explicit `session` argument is honored
+  as-is. Sends carrying a session target are refused when the
+  recipient has published session presence that does not include the
+  target session; recipients without session presence stay allowed
+  (first-use and legacy flows).
 - `blackboard_read` output schema: the `value` property used the JSON
   Schema boolean shorthand (`true`) instead of an object subschema.
   Strict clients validating `tools/list` per the MCP TypeScript SDK

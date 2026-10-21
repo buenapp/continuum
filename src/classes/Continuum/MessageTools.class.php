@@ -16,6 +16,8 @@ use Continuum\Bridge\XmppBridgeInterface;
  *   session  - only a reader on that session (or message_lease scoped
  *              to it) receives it
  *   task     - resolved at send time to the session bound to the task
+ *              when the recipient is the task's owner; otherwise the
+ *              task rides as a reference and no session is derived
  *   kind     - notice | context | directive | control
  *   priority - normal | urgent
  *   expires  - ISO-8601; expired messages are dropped from reads
@@ -41,7 +43,7 @@ class MessageTools {
 
     #[McpTool(
         name: 'message_send',
-        description: 'Send a message to another agent\'s inbox. Optional targeting: session (delivered only to that session), task (resolves to the session bound to the task), kind (notice|context|directive|control), priority (normal|urgent), expires (ISO 8601), replyTo (message id), epoch (master epoch; control kind only).',
+        description: 'Send a message to another agent\'s inbox. Optional targeting: session (delivered only to that session), task (resolves to the session bound to the task), kind (notice|context|directive|control), priority (normal|urgent), expires (ISO 8601), replyTo (message id), epoch (master epoch; control kind only). `task` targets the session working the task only when `to` is the task\'s owner; otherwise it rides as a reference.',
         outputSchema: self::SEND_SCHEMA
     )]
     public function message_send(
@@ -72,11 +74,26 @@ class MessageTools {
             if ($ts <= time()) { throw new \InvalidArgumentException("expires '{$expires}' is in the past"); }
         }
         if ($task !== null) {
-            $bound = $this->resolveTaskSession($task);
-            if ($session !== null && $session !== $bound) {
-                throw new \InvalidArgumentException("task {$task} is bound to session {$bound}; conflicting session '{$session}'");
+            $record = $this->storage->loadTask($task)
+                ?? throw new \RuntimeException("task {$task} not found");
+            $bound = $record['session'] ?? null;
+            if (($record['owner'] ?? null) === $to) {
+                if ($bound === null || $bound === '') {
+                    throw new \RuntimeException("task {$task} has no bound session; send untargeted or pass an explicit session");
+                }
+                if ($session !== null && $session !== $bound) {
+                    throw new \InvalidArgumentException("task {$task} is bound to session {$bound}; conflicting session '{$session}'");
+                }
+                $session = $bound;
             }
-            $session = $bound;
+        }
+        if ($session !== null) {
+            // Recipients with no published session presence stay exempt
+            // (first-use and legacy flows may register the session later).
+            $held = $this->storage->agentDirectory()[$to]['sessions'] ?? [];
+            if ($held !== [] && !isset($held[$session])) {
+                throw new \InvalidArgumentException("session '{$session}' is not held by '{$to}'; it would be unreachable in their inbox");
+            }
         }
         $id = self::newMessageId();
         $envelope = ['id' => $id, 'from' => CONTINUUM_AGENT, 'body' => $body, 'ts' => gmdate('c')];
@@ -253,16 +270,6 @@ class MessageTools {
         ]);
         $data = ['id' => $stanzaId, 'to' => $to, 'queued' => true, 'depth' => 0, 'via' => 'xmpp-bridge'];
         return ToolResult::structured("Message {$stanzaId} sent over XMPP to {$jid}.", $data);
-    }
-
-    /** A task target resolves to the session bound to it by its claim. */
-    private function resolveTaskSession(string $taskId): string {        $task = $this->storage->loadTask($taskId)
-            ?? throw new \RuntimeException("task {$taskId} not found");
-        $session = $task['session'] ?? null;
-        if ($session === null || $session === '') {
-            throw new \RuntimeException("task {$taskId} has no bound session; send untargeted or pass an explicit session");
-        }
-        return $session;
     }
 
     private static function newMessageId(): string {
