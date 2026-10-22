@@ -13,7 +13,7 @@ jobs:
         uses: actions/checkout@v4
       - name: Install PHP + PHPUnit
         run: |
-          doas pkg install -y php84 php84-curl php84-ctype php84-filter php84-mbstring phpunit11-php84 || \
+          doas pkg install -y php84 php84-curl php84-ctype php84-filter php84-mbstring php84-sodium php84-tokenizer phpunit11-php84 || \
           doas pkg install -y php84 php84-curl php84-ctype php84-filter php84-mbstring phpunit11
       - name: Run PHPUnit
         run: phpunit --configuration phpunit.xml
