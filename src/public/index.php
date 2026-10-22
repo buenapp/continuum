@@ -31,6 +31,7 @@ use Continuum\AgentResources;
 use Continuum\LockResources;
 use Continuum\EventResources;
 use Continuum\ContextResources;
+use Continuum\IdentityResources;
 use Continuum\CoordinationPrompts;
 use Continuum\SubscriptionFeed;
 use Continuum\Dashboard;
@@ -188,6 +189,7 @@ $server->register(new AgentResources($storage));
 $server->register(new LockResources($storage));
 $server->register(new EventResources($storage));
 $server->register(new ContextResources($storage));
+$server->register(new IdentityResources($storage));
 
 // Subscribe-and-Notify (2026-07-28): resource change streams only —
 // list-changed notifications are never emitted (the surface is static).

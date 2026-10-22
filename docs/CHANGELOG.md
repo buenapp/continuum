@@ -23,6 +23,19 @@ introduces them (see AGENTS.md). Version parity is enforced between
   byte-identical to before. `message_lease`/`message_inbox_pull` return
   the three optional fields (`MESSAGE_SCHEMA` gains them as string
   properties) and the XMPP bridge carries them in the sonya payload.
+- Identity registry
+  ([issue #6](https://pacyworld.dev/buenapp/continuum/issues/6)):
+  workstream identity records (Ed25519 public key plus status) live in
+  CouchDB db `identities` (doc id = workstream name) behind
+  `ContinuumStorage::saveIdentity` / `loadIdentity` / `listIdentities`,
+  served read-only as `continuum://identities` and
+  `continuum://identities/{workstream}`. The registry is written only by
+  the operator CLI `src/bin/identity-admin` (keygen, register, rotate,
+  revoke, list); v1 has no registry write tools. `keygen` emits a raw
+  64-byte Ed25519 secret key file for the operator's secret store and the
+  server never touches workstream private keys. Revocation keeps the
+  record so pre-revocation certificates remain verifiable. Provision the
+  new `continuum_identities` database (see UPGRADING).
 
 ## 0.4.1 (2026-10-20)
 

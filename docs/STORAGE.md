@@ -8,7 +8,7 @@
 | Layer | Engine | Adapter | Holds |
 |-------|--------|---------|-------|
 | Ephemeral | ValKey | `ValKeyStore` | task queues, advisory TTL locks, signals, agent presence, inboxes |
-| Durable | CouchDB | `CouchDBStore` | plans, task docs, board entries, append-only event log |
+| Durable | CouchDB | `CouchDBStore` | plans, task docs, board entries, workstream identity records, append-only event log |
 | Structural | ArcadeDB | `ArcadeDBStore` | Task/Agent vertices, DEPENDS_ON/CLAIMED_BY edges |
 
 ## ValKey key schema (prefix `continuum:`)
@@ -25,8 +25,10 @@ a non-owner can never release someone else's lock.
 
 ## CouchDB databases (prefix `continuum_`)
 
-- `plans`, `tasks`, `events`, `boards` — MVCC revisioned on write; a
-  stale writer gets a 409, never a silent overwrite.
+- `plans`, `tasks`, `events`, `boards`, `identities` — MVCC revisioned on
+  write; a stale writer gets a 409, never a silent overwrite.
+  `identities` holds workstream identity records (doc id = workstream
+  name), written only by `src/bin/identity-admin`.
 - `events` is append-only: every mutation logs
   `{agent, type, data, ts}` into it.
 

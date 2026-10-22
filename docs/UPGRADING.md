@@ -3,9 +3,20 @@
 Continuum follows semver. `UPGRADING.md` lists everything an operator must
 do when moving between versions; it ships with the code that requires it.
 
-## Unreleased (signed envelopes + attestation)
+## Unreleased (identity: registry + signed envelopes)
 
-Additive; no required operator action. Client-visible surface:
+1. Create the CouchDB database `continuum_identities` (prefix
+   configurable), alongside the databases from a fresh install.
+2. Registry writes run through `bin/identity-admin` (keygen, register,
+   rotate, revoke, list) only; the MCP surface
+   (`continuum://identities[/{workstream}]`) is read-only. `keygen` writes
+   a raw 64-byte Ed25519 secret key file for the operator to keep in a
+   secret store; the server never loads workstream private keys.
+
+The registry adds no settings keys; it rides the existing
+`[couchdb]` config.
+
+Additive messaging surface; no required operator action:
 
 - `message_send` accepts optional `sig` and `cert` (opaque base64
   identity material, stored and returned unchanged).
