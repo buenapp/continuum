@@ -6,6 +6,13 @@ introduces them (see AGENTS.md). Version parity is enforced between
 
 ## Unreleased
 
+### Changed
+
+- Re-vendored libraries from upstream: EnchiladaMCP gains prompt and
+  completion primitives and the `renamedFrom` hint map used by
+  unknown-tool suggestions; Tortilla's HTTP client and stdio transport
+  are current; EnchiladaHTTP is refreshed. No behavior change.
+
 ### Added
 
 - OTLP request telemetry: set `[otlp] enabled = true` to emit one
