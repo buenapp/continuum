@@ -32,6 +32,7 @@ use Continuum\AgentResources;
 use Continuum\LockResources;
 use Continuum\EventResources;
 use Continuum\ContextResources;
+use Continuum\IdentityResources;
 use Continuum\CoordinationPrompts;
 use Continuum\Storage\ContinuumStorage;
 use Continuum\Bridge\HeliofaneMcpBridge;
@@ -95,6 +96,7 @@ $server->register(new AgentResources($storage));
 $server->register(new LockResources($storage));
 $server->register(new EventResources($storage));
 $server->register(new ContextResources($storage));
+$server->register(new IdentityResources($storage));
 $server->register(new CoordinationPrompts($storage, $heliofaneBridge !== null));
 
 // Run via StdioTransport: primitives in (handler, progress emitter),

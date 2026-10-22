@@ -191,6 +191,18 @@ class ContinuumStorage implements ContinuumStorageInterface {
     public function loadPlan(string $planId): ?array {
         return $this->couch->get('plans', $planId);
     }
+    /** Workstream identity record (db 'identities'); doc id = workstream name. */
+    public function saveIdentity(string $workstream, array $identity, ?string $rev = null): array {
+        $wrote = $this->couch->put('identities', $workstream, $identity, $rev);
+        $this->publishChanges(['continuum://identities', "continuum://identities/{$workstream}"]);
+        return $wrote;
+    }
+    public function loadIdentity(string $workstream): ?array {
+        return $this->couch->get('identities', $workstream);
+    }
+    public function listIdentities(): array {
+        return $this->couch->listDocs('identities');
+    }
     public function saveTask(string $taskId, array $task, ?string $rev = null): array {
         $wrote = $this->couch->put('tasks', $taskId, $task, $rev);
         $this->arcade->upsertTaskNode($taskId, $task);

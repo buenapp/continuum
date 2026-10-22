@@ -3,6 +3,18 @@
 Continuum follows semver. `UPGRADING.md` lists everything an operator must
 do when moving between versions; it ships with the code that requires it.
 
+## Unreleased (identity registry)
+
+1. Create the CouchDB database `continuum_identities` (prefix
+   configurable), alongside the databases from a fresh install.
+2. Registry writes run through `bin/identity-admin` (keygen, register,
+   rotate, revoke, list) only; the MCP surface
+   (`continuum://identities[/{workstream}]`) is read-only. `keygen` writes
+   a raw 64-byte Ed25519 secret key file for the operator to keep in a
+   secret store; the server never loads workstream private keys.
+
+No new settings keys: the registry rides the existing `[couchdb]` config.
+
 ## 0.4.1 (messaging hardening + strict-client schema fix)
 
 No operator action: no new settings keys, no engine schema changes.
