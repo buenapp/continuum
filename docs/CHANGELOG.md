@@ -6,6 +6,8 @@ introduces them (see AGENTS.md). Version parity is enforced between
 
 ## Unreleased
 
+## 0.5.0 (2026-10-22)
+
 ### Changed
 
 - Re-vendored libraries from upstream: EnchiladaMCP gains prompt and
