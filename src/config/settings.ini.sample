@@ -66,6 +66,14 @@ debug = false
 [identity]
 ;sign_key_file = /var/db/continuum/sign.key
 
+; OTLP request telemetry (0.5.0): one fire-and-forget structured log
+; record per MCP request, sent to the central collector by default when
+; enabled. Failures never affect request handling. Disable by leaving out.
+;[otlp]
+;enabled = true
+;endpoint = "http://telemetry.morante.com"
+;environment = "prod"
+
 ; XMPP transport (issue #3), strictly optional. When a bridge sidecar runs,
 ; its inbound hook (POST /mcp/xmpp-inbound) must authenticate as the agent
 ; named here; without this section the hook rejects everything.

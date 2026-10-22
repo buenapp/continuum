@@ -215,8 +215,13 @@ if (($rpcBody['method'] ?? null) === 'tools/call' && isset($rpcBody['params']['n
 $declaredSession = $rpcBody['params']['_meta']['session'] ?? null;
 \Continuum\SessionContext::setDeclared(is_string($declaredSession) && $declaredSession !== '' ? $declaredSession : null);
 
+// OTLP request telemetry: fire-and-forget structured log records when
+// [otlp] enabled=true (default target: central telemetry collector).
+$telemetry = \Continuum\Telemetry::fromSettings($SETTINGS, APPLICATION_VERSION);
+$mcpWrapped = $telemetry->wrap($server->handleRequest(...), $agentName);
+
 $transport = new HttpSseTransport(
-    $server->handleRequest(...),
+    $mcpWrapped,
     $server->modernVersions(),
     $server->legacyVersions(),
 );

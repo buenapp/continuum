@@ -18,6 +18,11 @@ The registry adds no settings keys; it rides the existing
 
 Additive messaging surface; no required operator action:
 
+- OTLP request telemetry: opt in by setting `[otlp] enabled = true`
+  (endpoint defaults to the central collector, `environment=prod`); a
+  structured log record per MCP request goes out fire-and-forget, and
+  telemetry failures never affect the server. Not configured = no change.
+
 - `message_send` accepts optional `sig` and `cert` (opaque base64
   identity material, stored and returned unchanged).
 - `message_lease`/`message_inbox_pull` messages may carry `sig`,

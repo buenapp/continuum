@@ -8,6 +8,11 @@ introduces them (see AGENTS.md). Version parity is enforced between
 
 ### Added
 
+- OTLP request telemetry: set `[otlp] enabled = true` to emit one
+  fire-and-forget structured log record per MCP request (method, tool,
+  agent, duration, outcome) via `EnchiladaOTLP`. `endpoint` defaults to
+  the central collector; `environment` defaults to `prod`. Telemetry
+  failures never affect request handling; unset means zero overhead.
 - Verifiable sender identity
   ([issue #6](https://pacyworld.dev/buenapp/continuum/issues/6), first
   slice): `docs/IDENTITY.md` pins the canonical envelope encoding, the
