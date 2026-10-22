@@ -4,6 +4,7 @@ namespace Continuum;
 
 use EnchiladaMCP\McpTool;
 use EnchiladaMCP\ToolResult;
+use Continuum\Identity\Attestor;
 use Continuum\Storage\ContinuumStorage;
 use Continuum\Bridge\XmppBridgeInterface;
 
@@ -25,6 +26,13 @@ use Continuum\Bridge\XmppBridgeInterface;
  *   epoch    - control traffic only: the master epoch the sender acts
  *              under, so receivers drop stale-epoch directives
  *
+ * Identity fields (issue #6, docs/IDENTITY.md) are optional opaque
+ * base64 strings carried unchanged end to end:
+ *   sig      - session-key signature over the canonical envelope
+ *   cert     - delegation certificate binding that key to a workstream
+ *   attest   - Continuum's own signature, attached per send when
+ *              [identity] sign_key_file is configured
+ *
  * message_lease/message_ack are the non-destructive read path: a lease
  * marks messages in place until it expires, then they become eligible
  * again. The legacy message_inbox_pull still deletes on read, but only
@@ -35,15 +43,24 @@ class MessageTools {
     private const KINDS = ['notice', 'context', 'directive', 'control'];
     private const PRIORITIES = ['normal', 'urgent'];
 
+    private ?Attestor $attestor = null;
+
     public function __construct(
         private ContinuumStorage $storage,
         private ?XmppBridgeInterface $xmppBridge = null,
         private ?string $xmppDomain = null,
-    ) {}
+        ?string $signKeyFile = null,
+    ) {
+        // Attestation key material loads once per process; an unset
+        // [identity] sign_key_file leaves the send path untouched.
+        if ($signKeyFile !== null && $signKeyFile !== '') {
+            $this->attestor = Attestor::fromFile($signKeyFile);
+        }
+    }
 
     #[McpTool(
         name: 'message_send',
-        description: 'Send a message to another agent\'s inbox. Optional targeting: session (delivered only to that session), task (resolves to the session bound to the task), kind (notice|context|directive|control), priority (normal|urgent), expires (ISO 8601), replyTo (message id), epoch (master epoch; control kind only). `task` targets the session working the task only when `to` is the task\'s owner; otherwise it rides as a reference.',
+        description: 'Send a message to another agent\'s inbox. Optional targeting: session (delivered only to that session), task (resolves to the session bound to the task), kind (notice|context|directive|control), priority (normal|urgent), expires (ISO 8601), replyTo (message id), epoch (master epoch; control kind only). `task` targets the session working the task only when `to` is the task\'s owner; otherwise it rides as a reference. `sig` and `cert` are opaque base64 identity material (docs/IDENTITY.md) stored and forwarded unchanged.',
         outputSchema: self::SEND_SCHEMA
     )]
     public function message_send(
@@ -57,6 +74,8 @@ class MessageTools {
         ?string $expires = null,
         ?string $replyTo = null,
         ?string $epoch = null,
+        ?string $sig = null,
+        ?string $cert = null,
     ): ToolResult {
         if ($to === '') { throw new \RuntimeException('recipient must not be empty'); }
         if ($kind !== null && !in_array($kind, self::KINDS, true)) {
@@ -67,6 +86,12 @@ class MessageTools {
         }
         if ($epoch !== null && $kind !== 'control') {
             throw new \InvalidArgumentException('epoch is only meaningful on control messages; pass kind=control too');
+        }
+        foreach (['sig' => $sig, 'cert' => $cert] as $field => $value) {
+            if ($value === null) { continue; }
+            if ($value === '' || base64_decode($value, true) === false) {
+                throw new \InvalidArgumentException("{$field} must be a non-empty base64 string");
+            }
         }
         if ($expires !== null) {
             $ts = strtotime($expires);
@@ -98,8 +123,12 @@ class MessageTools {
         $id = self::newMessageId();
         $envelope = ['id' => $id, 'from' => CONTINUUM_AGENT, 'body' => $body, 'ts' => gmdate('c')];
         foreach (['topic' => $topic, 'session' => $session, 'task' => $task, 'kind' => $kind,
-                  'priority' => $priority, 'expires' => $expires, 'replyTo' => $replyTo, 'epoch' => $epoch] as $k => $v) {
+                  'priority' => $priority, 'expires' => $expires, 'replyTo' => $replyTo, 'epoch' => $epoch,
+                  'sig' => $sig, 'cert' => $cert] as $k => $v) {
             if ($v !== null) { $envelope[$k] = $v; }
+        }
+        if ($this->attestor !== null) {
+            $envelope['attest'] = $this->attestor->attest(['to' => $to] + $envelope, CONTINUUM_AGENT);
         }
         if ($this->xmppBridge !== null) {
             return $this->sendViaXmpp($to, $envelope);
@@ -257,7 +286,7 @@ class MessageTools {
         }
         $jid = "{$to}@{$domain}";
         $fields = [];
-        foreach (['kind', 'session', 'task', 'expires', 'priority', 'epoch'] as $f) {
+        foreach (['kind', 'session', 'task', 'expires', 'priority', 'epoch', 'sig', 'cert', 'attest'] as $f) {
             if (isset($envelope[$f])) { $fields[$f] = $envelope[$f]; }
         }
         if (isset($envelope['replyTo'])) { $fields['thread'] = $envelope['replyTo']; }
@@ -309,6 +338,9 @@ class MessageTools {
             'expires' => ['type' => 'string'],
             'replyTo' => ['type' => 'string'],
             'epoch' => ['type' => 'string'],
+            'sig' => ['type' => 'string'],
+            'cert' => ['type' => 'string'],
+            'attest' => ['type' => 'string'],
             'lease' => ['type' => 'string'],
             'lease_until' => ['type' => 'integer'],
         ],

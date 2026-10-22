@@ -71,4 +71,23 @@ class XmppInboundTest extends TestCase {
         $this->assertSame('T-1', $env['task']);
         $this->assertSame('urgent', $env['priority']);
     }
+
+    public function testSonyaIdentityFieldsRoundTripIntoTheEnvelope(): void {
+        $resp = new FakeRespClient([3]); // RPUSH -> depth 3
+        $hook = $this->hook($resp, [
+            ['code' => 200, 'body' => ['uuids' => ['e']]],
+            ['code' => 201, 'body' => []],
+        ]);
+        [$code] = $hook->handle('bridge', [
+            'agent' => 'devin',
+            'from' => 'sonya@example.com/sess-1',
+            'body' => 'signed and attested',
+            'sonya' => ['sig' => 'c2ln', 'cert' => 'Y2VydA==', 'attest' => 'YXR0ZXN0'],
+        ]);
+        $this->assertSame(200, $code);
+        $env = json_decode($resp->calls[0][2], true);
+        $this->assertSame('c2ln', $env['sig']);
+        $this->assertSame('Y2VydA==', $env['cert']);
+        $this->assertSame('YXR0ZXN0', $env['attest']);
+    }
 }

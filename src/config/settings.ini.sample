@@ -55,6 +55,17 @@ debug = false
 [milestones]
 ;adapter = "none"
 
+; Verifiable sender identity (issue #6, docs/IDENTITY.md). When
+; sign_key_file is set, every message_send attaches `attest`: an
+; Ed25519 signature over the canonical envelope encoding plus the
+; authenticated workstream. The file holds raw sodium Ed25519 key
+; material (a 64-byte secret key or a full 96-byte keypair in
+; sodium_crypto_sign_keypair format); publish the matching public key
+; in the identity registry as workstream `continuum`. Unset = no
+; attestation and sends behave exactly as before.
+[identity]
+;sign_key_file = /var/db/continuum/sign.key
+
 ; XMPP transport (issue #3), strictly optional. When a bridge sidecar runs,
 ; its inbound hook (POST /mcp/xmpp-inbound) must authenticate as the agent
 ; named here; without this section the hook rejects everything.

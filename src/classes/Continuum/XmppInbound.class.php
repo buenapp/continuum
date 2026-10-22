@@ -21,7 +21,7 @@ use Continuum\Storage\ContinuumStorage;
  *   thread   ?string  XEP-0201 <thread/>; becomes replyTo
  *   stanza_id ?string wire id for correlation
  *   sonya    ?object  urn:sonya:message:0 fields: kind, session, task,
- *                     priority, expires, epoch
+ *                     priority, expires, epoch, sig, cert, attest
  *
  * Authorization: the calling agent key must equal [xmpp] bridge_agent;
  * a stanza without a configured bridge is rejected, and issue #3 stays
@@ -57,7 +57,7 @@ class XmppInbound {
         if (is_string($payload['topic'] ?? null)) { $envelope['topic'] = $payload['topic']; }
         if (is_string($payload['thread'] ?? null)) { $envelope['replyTo'] = $payload['thread']; }
         if (is_string($payload['stanza_id'] ?? null)) { $envelope['stanza_id'] = $payload['stanza_id']; }
-        foreach (['kind', 'session', 'task', 'priority', 'expires', 'epoch'] as $f) {
+        foreach (['kind', 'session', 'task', 'priority', 'expires', 'epoch', 'sig', 'cert', 'attest'] as $f) {
             if (is_string($sonya[$f] ?? null)) { $envelope[$f] = $sonya[$f]; }
         }
 

@@ -8,6 +8,21 @@ introduces them (see AGENTS.md). Version parity is enforced between
 
 ### Added
 
+- Verifiable sender identity
+  ([issue #6](https://pacyworld.dev/buenapp/continuum/issues/6), first
+  slice): `docs/IDENTITY.md` pins the canonical envelope encoding, the
+  delegation certificate and the three trust levels (end-to-end signed,
+  Continuum attested, legacy) byte-exactly, with fixed test vectors;
+  `Continuum\Identity\` holds the pure PHP + ext-sodium helpers
+  (canonical encoding, cert parse/verify, envelope verification).
+  `message_send` accepts optional opaque `sig`/`cert` (non-empty
+  base64, stored and returned unchanged) and, when the new
+  `[identity] sign_key_file` setting names Continuum's raw Ed25519 key
+  material, attaches `attest`: a signature over the canonical envelope
+  plus the authenticated workstream. Unset setting keeps every send
+  byte-identical to before. `message_lease`/`message_inbox_pull` return
+  the three optional fields (`MESSAGE_SCHEMA` gains them as string
+  properties) and the XMPP bridge carries them in the sonya payload.
 - Identity registry
   ([issue #6](https://pacyworld.dev/buenapp/continuum/issues/6)):
   workstream identity records (Ed25519 public key plus status) live in
