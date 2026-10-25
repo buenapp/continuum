@@ -38,6 +38,7 @@
 %%WWWDIR%%/classes/Continuum/Identity/Attestor.class.php
 %%WWWDIR%%/classes/Continuum/Identity/Cert.class.php
 %%WWWDIR%%/classes/Continuum/Identity/Envelope.class.php
+%%WWWDIR%%/classes/Continuum/Identity/SessionClaim.class.php
 %%WWWDIR%%/classes/Continuum/Identity/Verify.class.php
 %%WWWDIR%%/classes/Continuum/Storage/ArcadeDBStore.class.php
 %%WWWDIR%%/classes/Continuum/Storage/ContinuumStorage.class.php

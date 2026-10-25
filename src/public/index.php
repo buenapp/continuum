@@ -211,9 +211,13 @@ if (($rpcBody['method'] ?? null) === 'tools/call' && isset($rpcBody['params']['n
 
 // Agents may declare their logical session as params._meta.session (the
 // targeting identity for scoped inbox reads and task session binding);
-// it wins over the transport session id where set.
+// it wins over the transport session id where set. A malformed
+// params._meta.session_cert is dropped here rather than failing the
+// request: the claim then simply stays declared.
 $declaredSession = $rpcBody['params']['_meta']['session'] ?? null;
 \Continuum\SessionContext::setDeclared(is_string($declaredSession) && $declaredSession !== '' ? $declaredSession : null);
+$declaredCert = $rpcBody['params']['_meta']['session_cert'] ?? null;
+\Continuum\SessionContext::setDeclaredCert(is_string($declaredCert) && $declaredCert !== '' ? $declaredCert : null);
 
 // OTLP request telemetry: fire-and-forget structured log records when
 // [otlp] enabled=true (default target: central telemetry collector).

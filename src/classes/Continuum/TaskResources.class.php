@@ -65,6 +65,8 @@ class TaskResources {
             'status' => $task['status'] ?? 'pending',
             'owner' => $task['owner'] ?? null,
             'assignee' => $task['assignee'] ?? null,
+            'session' => $task['session'] ?? null,
+            'session_proof' => $task['session_proof'] ?? null,
             'priority' => $task['priority'] ?? 2,
             'updated_at' => $task['updated_at'] ?? null,
         ];

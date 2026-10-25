@@ -105,10 +105,13 @@ $server->register(new CoordinationPrompts($storage, $heliofaneBridge !== null));
 // vendored here, ComalEventLoop::create() is null and the transport
 // runs blocking I/O.
 // A declared params._meta.session overrides the pid-scoped session as the
-// targeting identity for inbox reads and task binding.
+// targeting identity for inbox reads and task binding; a matching
+// params._meta.session_cert proves the claim (docs/IDENTITY.md 12).
 $handler = function (array $request) use ($server) {
     $declared = $request['params']['_meta']['session'] ?? null;
     \Continuum\SessionContext::setDeclared(is_string($declared) && $declared !== '' ? $declared : null);
+    $cert = $request['params']['_meta']['session_cert'] ?? null;
+    \Continuum\SessionContext::setDeclaredCert(is_string($cert) && $cert !== '' ? $cert : null);
     return $server->handleRequest($request);
 };
 $transport = new StdioTransport($handler, $server->tick(...));
