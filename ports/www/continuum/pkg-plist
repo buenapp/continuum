@@ -1,3 +1,4 @@
+%%WWWDIR%%/bin/identity-admin
 %%WWWDIR%%/bin/mcp-stdio
 %%WWWDIR%%/bin/smoke-test
 %%WWWDIR%%/classes/Continuum/AgentResources.class.php
@@ -10,6 +11,7 @@
 %%WWWDIR%%/classes/Continuum/Dashboard.class.php
 %%WWWDIR%%/classes/Continuum/EventResources.class.php
 %%WWWDIR%%/classes/Continuum/EventTools.class.php
+%%WWWDIR%%/classes/Continuum/IdentityResources.class.php
 %%WWWDIR%%/classes/Continuum/LockResources.class.php
 %%WWWDIR%%/classes/Continuum/LockTools.class.php
 %%WWWDIR%%/classes/Continuum/MemoryTools.class.php
@@ -20,6 +22,7 @@
 %%WWWDIR%%/classes/Continuum/SubscriptionFeed.class.php
 %%WWWDIR%%/classes/Continuum/TaskResources.class.php
 %%WWWDIR%%/classes/Continuum/TaskTools.class.php
+%%WWWDIR%%/classes/Continuum/Telemetry.class.php
 %%WWWDIR%%/classes/Continuum/XmppInbound.class.php
 %%WWWDIR%%/classes/Continuum/Bridge/EmbeddingProvider.class.php
 %%WWWDIR%%/classes/Continuum/Bridge/EmbeddingRanker.class.php
@@ -30,6 +33,11 @@
 %%WWWDIR%%/classes/Continuum/Bridge/RankingProviderInterface.class.php
 %%WWWDIR%%/classes/Continuum/Bridge/XmppBridgeClient.class.php
 %%WWWDIR%%/classes/Continuum/Bridge/XmppBridgeInterface.class.php
+%%WWWDIR%%/classes/Continuum/Identity/Attestor.class.php
+%%WWWDIR%%/classes/Continuum/Identity/Cert.class.php
+%%WWWDIR%%/classes/Continuum/Identity/Envelope.class.php
+%%WWWDIR%%/classes/Continuum/Identity/SessionClaim.class.php
+%%WWWDIR%%/classes/Continuum/Identity/Verify.class.php
 %%WWWDIR%%/classes/Continuum/Storage/ArcadeDBStore.class.php
 %%WWWDIR%%/classes/Continuum/Storage/ContinuumStorage.class.php
 %%WWWDIR%%/classes/Continuum/Storage/ContinuumStorageInterface.class.php

@@ -14,11 +14,13 @@ class TaskToolsTest extends TestCase {
     protected function setUp(): void {
         \Continuum\SessionContext::set(null);
         \Continuum\SessionContext::setDeclared(null);
+        \Continuum\SessionContext::setDeclaredCert(null);
     }
 
     protected function tearDown(): void {
         \Continuum\SessionContext::set(null);
         \Continuum\SessionContext::setDeclared(null);
+        \Continuum\SessionContext::setDeclaredCert(null);
     }
 
     private function storage(FakeCouch $couch, ?FakeRespClient $resp = null, ?FakeArcade $arcade = null): ContinuumStorage {
@@ -117,6 +119,98 @@ class TaskToolsTest extends TestCase {
         // CLAIMED_BY edge recorded
         $commands = array_column(array_column($arcade->calls, 'body'), 'command');
         $this->assertStringContainsString('CLAIMED_BY', implode("\n", $commands));
+    }
+
+    /** A task_claim write path (load, save, event) for claim-recording tests. */
+    private function claimableTask(): FakeCouch {
+        return new FakeCouch([
+            ['code' => 200, 'body' => ['_rev' => '1-a', 'status' => 'pending', 'owner' => null, 'title' => 'T']],
+            ['code' => 201, 'body' => ['id' => 'T-1', 'rev' => '2-b']],
+            ['code' => 200, 'body' => ['uuids' => ['ev2']]],
+            ['code' => 201, 'body' => ['id' => 'ev2', 'rev' => '1-x']],
+        ]);
+    }
+
+    /** Delegation certificate signed by $workstreamSecret, as carried on the wire. */
+    private function sessionCert(string $session, string $workstream, string $workstreamSecret): string {
+        $cert = [
+            'not_after' => '2126-10-21T08:03:04+00:00',
+            'session' => $session,
+            'session_pubkey' => base64_encode(sodium_crypto_sign_publickey(sodium_crypto_sign_keypair())),
+            'workstream' => $workstream,
+        ];
+        $cert['ws_sig'] = base64_encode(sodium_crypto_sign_detached(
+            \Continuum\Identity\Envelope::canonical(\Continuum\Identity\Cert::covered($cert)),
+            $workstreamSecret
+        ));
+        return json_encode($cert, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    }
+
+    public function testClaimRecordsDeclaredSessionWithoutCertificate(): void {
+        \Continuum\SessionContext::setDeclared('sess-a');
+        $couch = $this->claimableTask();
+        $result = (new TaskTools($this->storage($couch)))->task_claim('T-1')->getStructuredContent();
+        $this->assertSame('sess-a', $result['session']);
+        $this->assertSame('declared', $result['session_proof']);
+        $this->assertSame('declared', $couch->calls[1]['data']['session_proof']);
+        $this->assertSame('no certificate presented', $couch->calls[1]['data']['session_reason']);
+        $this->assertArrayNotHasKey('session_workstream', $couch->calls[1]['data']);
+    }
+
+    public function testClaimRecordsProvedSessionWithValidCertificate(): void {
+        $wsKeypair = sodium_crypto_sign_keypair();
+        \Continuum\SessionContext::setDeclared('sess-a');
+        \Continuum\SessionContext::setDeclaredCert($this->sessionCert(
+            'sess-a', 'test-agent', sodium_crypto_sign_secretkey($wsKeypair)
+        ));
+        $couch = new FakeCouch([
+            ['code' => 200, 'body' => ['_rev' => '1-a', 'status' => 'pending', 'owner' => null, 'title' => 'T']],
+            ['code' => 200, 'body' => [
+                '_id' => 'test-agent',
+                'pubkey' => base64_encode(sodium_crypto_sign_publickey($wsKeypair)),
+                'status' => 'active',
+            ]],
+            ['code' => 201, 'body' => ['id' => 'T-1', 'rev' => '2-b']],
+            ['code' => 200, 'body' => ['uuids' => ['ev2']]],
+            ['code' => 201, 'body' => ['id' => 'ev2', 'rev' => '1-x']],
+        ]);
+        $result = (new TaskTools($this->storage($couch)))->task_claim('T-1')->getStructuredContent();
+        $this->assertSame('sess-a', $result['session']);
+        $this->assertSame('proved', $result['session_proof']);
+        $saved = $couch->calls[2]['data'];
+        $this->assertSame('proved', $saved['session_proof']);
+        $this->assertSame('test-agent', $saved['session_workstream']);
+        $this->assertArrayNotHasKey('session_reason', $saved);
+    }
+
+    public function testClaimDowngradesCertificateFromAnotherWorkstream(): void {
+        // certificate is validly signed, but by a different workstream than
+        // the one that authenticated this request
+        $wsKeypair = sodium_crypto_sign_keypair();
+        \Continuum\SessionContext::setDeclared('sess-a');
+        \Continuum\SessionContext::setDeclaredCert($this->sessionCert(
+            'sess-a', 'someone-else', sodium_crypto_sign_secretkey($wsKeypair)
+        ));
+        $couch = $this->claimableTask();
+        $result = (new TaskTools($this->storage($couch)))->task_claim('T-1')->getStructuredContent();
+        $this->assertSame('declared', $result['session_proof']);
+        $this->assertStringContainsString("belongs to workstream 'someone-else'",
+            $couch->calls[1]['data']['session_reason']);
+    }
+
+    public function testClaimWithoutSessionClearsProofFields(): void {
+        $couch = new FakeCouch([
+            ['code' => 200, 'body' => ['_rev' => '9-z', 'status' => 'pending', 'owner' => null, 'title' => 'T',
+                'session' => 'stale', 'session_proof' => 'proved', 'session_workstream' => 'old']],
+            ['code' => 201, 'body' => ['id' => 'T-1', 'rev' => '2-b']],
+            ['code' => 200, 'body' => ['uuids' => ['ev2']]],
+            ['code' => 201, 'body' => ['id' => 'ev2', 'rev' => '1-x']],
+        ]);
+        (new TaskTools($this->storage($couch)))->task_claim('T-1');
+        $saved = $couch->calls[1]['data'];
+        foreach (['session', 'session_proof', 'session_workstream', 'session_reason'] as $field) {
+            $this->assertArrayNotHasKey($field, $saved, "{$field} must not survive an unbound claim");
+        }
     }
 
     public function testClaimOnHeldTaskElicitsStealConfirmation(): void {

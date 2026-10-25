@@ -25,6 +25,11 @@ final class SessionContext {
      *  precedence over the transport id for message targeting). */
     private static ?string $declared = null;
 
+    /** Delegation certificate presented as `params._meta.session_cert`
+     *  alongside the declared session; proves the claim when it verifies
+     *  against the registry (docs/IDENTITY.md 12). */
+    private static ?string $declaredCert = null;
+
     public static function set(?string $id): void {
         self::$id = $id;
     }
@@ -39,6 +44,14 @@ final class SessionContext {
 
     public static function declared(): ?string {
         return self::$declared;
+    }
+
+    public static function setDeclaredCert(?string $cert): void {
+        self::$declaredCert = $cert;
+    }
+
+    public static function declaredCert(): ?string {
+        return self::$declaredCert;
     }
 
     /** Effective session for message targeting and task binding. */

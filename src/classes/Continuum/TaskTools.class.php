@@ -6,6 +6,7 @@ use EnchiladaMCP\McpTool;
 use EnchiladaMCP\ToolResult;
 use EnchiladaMCP\ElicitationRequired;
 use Continuum\Storage\ContinuumStorage;
+use Continuum\Identity\SessionClaim;
 use Continuum\Bridge\MilestoneSyncAdapterInterface;
 use Continuum\Bridge\NullMilestoneSyncAdapter;
 
@@ -166,7 +167,27 @@ class TaskTools {
         // resolve to it (message_send task=...). _meta.session wins over
         // the transport session id; no session leaves the task unbound.
         $boundSession = SessionContext::session();
-        if ($boundSession !== null) { $task['session'] = $boundSession; } else { unset($task['session']); }
+        if ($boundSession !== null) {
+            $task['session'] = $boundSession;
+            // A claim backed by a delegation certificate for that session is
+            // proved; anything else is recorded as declared (docs/IDENTITY.md 12).
+            $claim = SessionClaim::resolve(
+                $boundSession,
+                SessionContext::declaredCert(),
+                fn(string $ws): ?array => $this->storage->loadIdentity($ws),
+                CONTINUUM_AGENT,
+            );
+            $task['session_proof'] = $claim['status'];
+            if ($claim['status'] === SessionClaim::PROVED) {
+                $task['session_workstream'] = $claim['workstream'];
+                unset($task['session_reason']);
+            } else {
+                $task['session_reason'] = $claim['reason'];
+                unset($task['session_workstream']);
+            }
+        } else {
+            unset($task['session'], $task['session_proof'], $task['session_workstream'], $task['session_reason']);
+        }
         $task['claimed_at'] = gmdate('c');
         $task['updated_at'] = gmdate('c');
         $this->saveGuarded($taskId, $task, $task['_rev'] ?? null);
@@ -215,7 +236,7 @@ class TaskTools {
             $task['owner'] = null;
         }
         if ($task['owner'] === null) {
-            unset($task['session']); // binding dies with the claim
+            unset($task['session'], $task['session_proof'], $task['session_workstream'], $task['session_reason']); // binding dies with the claim
         }
         $this->saveGuarded($taskId, $task, $task['_rev'] ?? null);
         if ($task['owner'] === null) {
@@ -256,7 +277,7 @@ class TaskTools {
         ];
         $task['status'] = 'pending';
         $task['owner'] = null;
-        unset($task['session']); // the next claim rebinds
+        unset($task['session'], $task['session_proof'], $task['session_workstream'], $task['session_reason']); // the next claim rebinds
         $task['updated_at'] = gmdate('c');
         $this->saveGuarded($taskId, $task, $task['_rev'] ?? null);
         $this->storage->unclaim($taskId);
@@ -299,10 +320,11 @@ class TaskTools {
             'assignee' => ['type' => ['string', 'null']],
             'phorge_task_id' => ['type' => ['string', 'null']],
             'session' => ['type' => ['string', 'null']],
+            'session_proof' => ['type' => ['string', 'null']],
             'priority' => ['type' => 'integer'],
             'updated_at' => ['type' => ['string', 'null']],
         ],
-        'required' => ['task', 'title', 'scope', 'status', 'owner', 'assignee', 'phorge_task_id', 'session', 'priority', 'updated_at'],
+        'required' => ['task', 'title', 'scope', 'status', 'owner', 'assignee', 'phorge_task_id', 'session', 'session_proof', 'priority', 'updated_at'],
     ];
 
     private const TASK_LIST_SCHEMA = [
@@ -325,6 +347,7 @@ class TaskTools {
             'assignee' => $task['assignee'] ?? null,
             'phorge_task_id' => $task['phorge_task_id'] ?? null,
             'session' => $task['session'] ?? null,
+            'session_proof' => $task['session_proof'] ?? null,
             'priority' => $task['priority'] ?? 2,
             'updated_at' => $task['updated_at'] ?? null,
         ];

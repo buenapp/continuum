@@ -23,10 +23,16 @@ Additive messaging surface; no required operator action:
   structured log record per MCP request goes out fire-and-forget, and
   telemetry failures never affect the server. Not configured = no change.
 
-- `message_send` accepts optional `sig` and `cert` (opaque base64
-  identity material, stored and returned unchanged).
+- `message_send` accepts optional `sig` (opaque base64) and `cert`
+  (the delegation certificate as a JSON object string, stored and
+  returned unchanged).
 - `message_lease`/`message_inbox_pull` messages may carry `sig`,
   `cert` and `attest`; envelopes without them are unchanged.
+
+New optional `params._meta.session_cert` (a delegation certificate for
+the session named in `params._meta.session`) proves that session claim;
+see `docs/IDENTITY.md` 12. Without it the claim is recorded as
+`declared`, exactly as before, so nothing needs provisioning.
 
 New optional setting `[identity] sign_key_file` naming a file with raw
 sodium Ed25519 key material (64-byte secret key or 96-byte

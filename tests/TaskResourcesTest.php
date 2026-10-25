@@ -60,6 +60,35 @@ class TaskResourcesTest extends TestCase {
         $this->assertSame('2026-09-13T02:00:00Z', $content['annotations']['lastModified']);
     }
 
+    public function testOpenListCarriesSessionBindingAndProof(): void {
+        $couch = new FakeCouch([['code' => 200, 'body' => ['rows' => [
+            (object)['id' => 'T-1', 'doc' => (object)[
+                'title' => 'Proved', 'status' => 'in_progress', 'session' => 'sess-a',
+                'session_proof' => 'proved', 'session_workstream' => 'devin',
+            ]],
+            (object)['id' => 'T-2', 'doc' => (object)[
+                'title' => 'Unbound', 'status' => 'pending',
+            ]],
+        ]]]]);
+        $body = json_decode($this->registry($couch)->readResource('continuum://tasks')['text'], true);
+        $byTask = array_column($body['tasks'], null, 'task');
+        $this->assertSame('sess-a', $byTask['T-1']['session']);
+        $this->assertSame('proved', $byTask['T-1']['session_proof']);
+        $this->assertNull($byTask['T-2']['session']);
+        $this->assertNull($byTask['T-2']['session_proof']);
+    }
+
+    public function testCardCarriesSessionProofFields(): void {
+        $couch = new FakeCouch([['code' => 200, 'body' => [
+            '_rev' => '2-a', 'title' => 'T', 'status' => 'in_progress', 'owner' => 'test-agent',
+            'session' => 'sess-a', 'session_proof' => 'declared', 'session_reason' => 'no certificate presented',
+        ]]]);
+        $body = json_decode($this->registry($couch)->readResource('continuum://tasks/T-1')['text'], true);
+        $this->assertSame('sess-a', $body['session']);
+        $this->assertSame('declared', $body['session_proof']);
+        $this->assertSame('no certificate presented', $body['session_reason']);
+    }
+
     public function testCardMissingThrows(): void {
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('task T-X not found');

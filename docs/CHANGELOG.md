@@ -6,6 +6,42 @@ introduces them (see AGENTS.md). Version parity is enforced between
 
 ## Unreleased
 
+### Added
+
+- Proved versus declared session claims
+  ([issue #6](https://pacyworld.dev/buenapp/continuum/issues/6), last
+  work item): a client that presents `params._meta.session_cert` (the
+  delegation certificate for its declared session) has that session
+  claim **proved**; anything else stays **declared** with the reason
+  recorded. `task_claim` writes `session_proof` plus
+  `session_workstream` (proved) or `session_reason` (declared) on the
+  task doc, and all of them are cleared with the binding;
+  `message_lease` reports `session_proof` for a scoped read and `null`
+  for an untargeted one. A certificate delegated by a different
+  workstream than the caller's, or one that is expired, tampered,
+  unregistered or revoked, downgrades the claim instead of failing the
+  request. Continuum enforces no minimum level; consumers decide. See
+  `docs/IDENTITY.md` 12.
+
+### Fixed
+
+- The FreeBSD port never installed `classes/Continuum/Identity/`, so a
+  packaged install had no `Identity\Cert`, `Verify`, `Envelope`,
+  `Attestor` or `SessionClaim` and every identity-dependent path
+  (verification, `cert`/`sig` carriers, the session claim levels) would
+  have failed at runtime. `identity-admin`, `IdentityResources` and
+  `Telemetry` were also absent from `pkg-plist`. All are installed and
+  listed now, and the plist is verified to match the staged tree
+  exactly.
+- `message_send` rejected every spec-conformant `cert`. It required
+  base64, but `docs/IDENTITY.md` 7.2 carries the delegation certificate
+  as a JSON object string, which is what `Identity\Cert` parses and
+  `Identity\Verify` verifies, so no end-to-end signed message could be
+  sent and the XMPP bridge would have carried the wrong bytes. `cert`
+  is now shape-checked as a JSON object and stays otherwise opaque.
+  The existing tests used `base64_encode('{"stub":"cert"}')` and so
+  never exercised the real wire form.
+
 ## 0.5.0 (2026-10-22)
 
 ### Changed

@@ -5,6 +5,7 @@ namespace Continuum\Tests;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use EnchiladaMCP\ToolRegistry;
+use Continuum\Identity\Cert;
 use Continuum\Identity\Envelope;
 use Continuum\Identity\Verify;
 use Continuum\MessageTools;
@@ -32,9 +33,25 @@ class MessageToolsTest extends TestCase {
     private string $signKeypair;
     private string $signKeyFile;
 
+    /**
+     * A `cert` as docs/IDENTITY.md 7.2 carries it: a JSON object string.
+     * This is opaque to message_send (the receiver parses and verifies),
+     * so the signature here only has to exist, not verify.
+     */
+    private function certField(string $session = 'sess-1', string $workstream = 'test-agent'): string {
+        return json_encode([
+            'not_after' => '2126-10-21T08:03:04+00:00',
+            'session' => $session,
+            'session_pubkey' => base64_encode(random_bytes(SODIUM_CRYPTO_SIGN_PUBLICKEYBYTES)),
+            'workstream' => $workstream,
+            'ws_sig' => base64_encode(random_bytes(SODIUM_CRYPTO_SIGN_BYTES)),
+        ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    }
+
     protected function setUp(): void {
         \Continuum\SessionContext::set(null);
         \Continuum\SessionContext::setDeclared(null);
+        \Continuum\SessionContext::setDeclaredCert(null);
         $this->signKeypair = sodium_crypto_sign_keypair();
         $this->signKeyFile = tempnam(sys_get_temp_dir(), 'continuum-sign-');
         file_put_contents($this->signKeyFile, $this->signKeypair);
@@ -43,6 +60,7 @@ class MessageToolsTest extends TestCase {
     protected function tearDown(): void {
         \Continuum\SessionContext::set(null);
         \Continuum\SessionContext::setDeclared(null);
+        \Continuum\SessionContext::setDeclaredCert(null);
         @unlink($this->signKeyFile);
     }
 
@@ -157,6 +175,45 @@ class MessageToolsTest extends TestCase {
         $this->assertStringContainsString('for session sess-1', $text);
     }
 
+    /** One scoped lease read scripted for a single candidate message. */
+    private function scopedLeaseResp(): FakeRespClient {
+        return new FakeRespClient([
+            'OK',
+            [json_encode(['id' => 'M-C1', 'from' => 'x', 'body' => 'hi', 'session' => 'sess-a'])],
+            'OK', 'QUEUED', 'QUEUED', [1, 1],
+        ]);
+    }
+
+    public function testLeaseReportsDeclaredWhenNoCertificatePresented(): void {
+        \Continuum\SessionContext::setDeclared('sess-a');
+        $result = $this->tools($this->scopedLeaseResp())->message_lease(10, 60);
+        $data = $result->getStructuredContent();
+        $this->assertSame('declared', $data['session_proof']);
+        $this->assertStringContainsString('[declared: no certificate presented]', $result->toArray()['content'][0]['text']);
+    }
+
+    public function testLeaseReportsProvedWithValidCertificate(): void {
+        \Continuum\SessionContext::setDeclared('sess-a');
+        \Continuum\SessionContext::setDeclaredCert($this->signedCertFor());
+        $result = $this->toolsWithIdentity($this->scopedLeaseResp(), 'active')->message_lease(10, 60);
+        $data = $result->getStructuredContent();
+        $this->assertSame('proved', $data['session_proof']);
+        $this->assertStringContainsString('[proved]', $result->toArray()['content'][0]['text']);
+    }
+
+    public function testLeaseReportsDeclaredForRevokedWorkstream(): void {
+        \Continuum\SessionContext::setDeclared('sess-a');
+        \Continuum\SessionContext::setDeclaredCert($this->signedCertFor());
+        $data = $this->toolsWithIdentity($this->scopedLeaseResp(), 'revoked')
+            ->message_lease(10, 60)->getStructuredContent();
+        $this->assertSame('declared', $data['session_proof']);
+    }
+
+    public function testUntargetedLeaseReportsNoClaimLevel(): void {
+        $data = $this->tools($this->scopedLeaseResp())->message_lease(10, 60)->getStructuredContent();
+        $this->assertNull($data['session_proof']);
+    }
+
     public function testLeaseWithoutSessionTakesUntargetedOnly(): void {
         $resp = new FakeRespClient([
             'OK',
@@ -171,7 +228,6 @@ class MessageToolsTest extends TestCase {
         $this->assertSame(1, $data['count']);
         $this->assertSame('open', $data['messages'][0]['body']);
     }
-
     public function testLeaseUntargetedFalseScopesToDeclaredSession(): void {
         \Continuum\SessionContext::setDeclared('sess-a');
         $resp = new FakeRespClient([
@@ -556,7 +612,7 @@ class MessageToolsTest extends TestCase {
     public function testSendCarriesSigAndCertUnchanged(): void {
         $resp = new FakeRespClient([1]); // RPUSH
         $sig = base64_encode(random_bytes(SODIUM_CRYPTO_SIGN_BYTES));
-        $cert = base64_encode('{"stub":"cert"}');
+        $cert = $this->certField();
         $this->tools($resp)->message_send('bob', 'hello', null, sig: $sig, cert: $cert);
         $envelope = json_decode($resp->calls[0][2], true);
         $this->assertSame($sig, $envelope['sig']);
@@ -574,8 +630,68 @@ class MessageToolsTest extends TestCase {
             'empty sig' => ['' , null],
             'non-base64 sig' => ['not base64!!', null],
             'empty cert' => [null, ''],
-            'non-base64 cert' => [null, '***'],
+            // cert is a JSON object (docs/IDENTITY.md 6.1), not base64
+            'non-JSON cert' => [null, '***'],
+            'JSON list cert' => [null, '["not","an","object"]'],
+            'JSON scalar cert' => [null, '"scalar"'],
         ];
+    }
+
+    /**
+     * The regression that matters: a real signed message built the way
+     * docs/IDENTITY.md 7.2 describes must survive message_send and verify
+     * end to end on the receiving side. Before the cert fix this could not
+     * be expressed at all: message_send rejected the JSON cert as "not
+     * base64", so every conformant end-to-end message was refused.
+     */
+    public function testSpecConformantSignedMessageVerifiesEndToEnd(): void {
+        $wsKeypair = sodium_crypto_sign_keypair();
+        $sessKeypair = sodium_crypto_sign_keypair();
+        $cert = [
+            'not_after' => '2126-10-21T08:03:04+00:00',
+            'session' => 'sess-e2e',
+            'session_pubkey' => base64_encode(sodium_crypto_sign_publickey($sessKeypair)),
+            'workstream' => 'devin',
+        ];
+        $cert['ws_sig'] = base64_encode(sodium_crypto_sign_detached(
+            Envelope::canonical(Cert::covered($cert)),
+            sodium_crypto_sign_secretkey($wsKeypair)
+        ));
+        $certJson = json_encode($cert, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+
+        \Continuum\SessionContext::setDeclared('sess-e2e');
+        $resp = new FakeRespClient([
+            ['sonya'],               // SMEMBERS agents
+            ['heartbeat', '1'],      // HGETALL agent:sonya
+            ['sess-e2e'],            // SMEMBERS agent-sessions:sonya
+            ['heartbeat', '1'],      // HGETALL session:sonya:sess-e2e
+            '1',                     // HGET agent:sonya heartbeat
+            1,                       // RPUSH -> depth
+        ]);
+        $this->tools($resp)->message_send('sonya', 'ship it', null, session: 'sess-e2e', cert: $certJson,
+            sig: base64_encode(random_bytes(SODIUM_CRYPTO_SIGN_BYTES)));
+        $rpush = current(array_filter($resp->calls, fn($c) => $c[0] === 'RPUSH'));
+        $envelope = json_decode($rpush[2], true);
+
+        // message_send refused this cert before the fix
+        $this->assertSame($certJson, $envelope['cert']);
+        $this->assertSame('sess-e2e', $envelope['session']);
+
+        // sign the canonical form the way a real client does, then let a
+        // receiver verify: cert chain -> session signature
+        $envelope['sig'] = base64_encode(sodium_crypto_sign_detached(
+            Envelope::canonical(Envelope::sigCovered($envelope + ['to' => 'sonya'])),
+            sodium_crypto_sign_secretkey($sessKeypair)
+        ));
+        $result = Verify::envelope($envelope + ['to' => 'sonya'], [
+            '_id' => 'devin',
+            'pubkey' => base64_encode(sodium_crypto_sign_publickey($wsKeypair)),
+            'status' => 'active',
+        ]);
+        $this->assertSame('signed', $result['level']);
+        $this->assertTrue($result['valid'], (string)$result['reason']);
+        $this->assertSame('devin', $result['workstream']);
+        $this->assertSame('sess-e2e', $result['session']);
     }
 
     public function testSendWithoutKeyFileLeavesEnvelopeUnchanged(): void {
@@ -622,7 +738,7 @@ class MessageToolsTest extends TestCase {
         $resp = new FakeRespClient([1]);
         $tools = new MessageTools(new ContinuumStorage(new ValKeyStore($resp), $this->couch(), new FakeArcade()), null, null, $this->signKeyFile);
         $sig = base64_encode(random_bytes(SODIUM_CRYPTO_SIGN_BYTES));
-        $cert = base64_encode('{"stub":"cert"}');
+        $cert = $this->certField();
         $tools->message_send('bob', 'hello', null, sig: $sig, cert: $cert);
         $envelope = json_decode($resp->calls[0][2], true);
         $key = sodium_crypto_sign_publickey($this->signKeypair);
@@ -646,7 +762,7 @@ class MessageToolsTest extends TestCase {
         $bridge = new FakeXmppBridge();
         $tools = new MessageTools(new ContinuumStorage(new ValKeyStore($resp), $this->couch(), new FakeArcade()), $bridge, 'xmpp.example.com', $this->signKeyFile);
         $sig = base64_encode(random_bytes(SODIUM_CRYPTO_SIGN_BYTES));
-        $cert = base64_encode('{"stub":"cert"}');
+        $cert = $this->certField();
         $tools->message_send('sonya', 'ready', null, sig: $sig, cert: $cert);
         $fields = $bridge->calls[0]['fields'];
         $this->assertSame($sig, $fields['sig']);
@@ -693,5 +809,38 @@ class MessageToolsTest extends TestCase {
             'rotated_at' => null,
             'revoked_at' => null,
         ];
+    }
+
+    /** MessageTools whose registry answers for workstream 'test-agent'. */
+    private function toolsWithIdentity(FakeRespClient $resp, string $status): MessageTools {
+        return new MessageTools(new ContinuumStorage(
+            new ValKeyStore($resp),
+            new FakeCouch([
+                ['code' => 200, 'body' => [
+                    '_id' => 'test-agent',
+                    'pubkey' => base64_encode(sodium_crypto_sign_publickey($this->signKeypair)),
+                    'status' => $status,
+                ]],
+                // the lease audit entry
+                ['code' => 200, 'body' => ['uuids' => ['e']]],
+                ['code' => 201, 'body' => []],
+            ]),
+            new FakeArcade()
+        ));
+    }
+
+    /** A delegation cert for sess-a by this test's signing keypair. */
+    private function signedCertFor(string $session = 'sess-a'): string {
+        $cert = [
+            'not_after' => '2126-10-21T08:03:04+00:00',
+            'session' => $session,
+            'session_pubkey' => base64_encode(sodium_crypto_sign_publickey($this->signKeypair)),
+            'workstream' => 'test-agent',
+        ];
+        $cert['ws_sig'] = base64_encode(sodium_crypto_sign_detached(
+            Envelope::canonical(Cert::covered($cert)),
+            sodium_crypto_sign_secretkey($this->signKeypair)
+        ));
+        return json_encode($cert, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
     }
 }

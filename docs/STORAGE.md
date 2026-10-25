@@ -29,6 +29,10 @@ a non-owner can never release someone else's lock.
   write; a stale writer gets a 409, never a silent overwrite.
   `identities` holds workstream identity records (doc id = workstream
   name), written only by `src/bin/identity-admin`.
+- `tasks` docs carry the claim's session binding (`session`) plus its
+  proof level (`session_proof` = `proved`|`declared`,
+  `session_workstream` or `session_reason`); all four are cleared when
+  the binding is released. See `docs/IDENTITY.md` 12.
 - `events` is append-only: every mutation logs
   `{agent, type, data, ts}` into it.
 

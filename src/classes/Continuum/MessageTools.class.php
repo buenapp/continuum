@@ -5,6 +5,7 @@ namespace Continuum;
 use EnchiladaMCP\McpTool;
 use EnchiladaMCP\ToolResult;
 use Continuum\Identity\Attestor;
+use Continuum\Identity\SessionClaim;
 use Continuum\Storage\ContinuumStorage;
 use Continuum\Bridge\XmppBridgeInterface;
 
@@ -60,7 +61,7 @@ class MessageTools {
 
     #[McpTool(
         name: 'message_send',
-        description: 'Send a message to another agent\'s inbox. Optional targeting: session (delivered only to that session), task (resolves to the session bound to the task), kind (notice|context|directive|control), priority (normal|urgent), expires (ISO 8601), replyTo (message id), epoch (master epoch; control kind only). `task` targets the session working the task only when `to` is the task\'s owner; otherwise it rides as a reference. `sig` and `cert` are opaque base64 identity material (docs/IDENTITY.md) stored and forwarded unchanged.',
+        description: 'Send a message to another agent\'s inbox. Optional targeting: session (delivered only to that session), task (resolves to the session bound to the task), kind (notice|context|directive|control), priority (normal|urgent), expires (ISO 8601), replyTo (message id), epoch (master epoch; control kind only). `task` targets the session working the task only when `to` is the task\'s owner; otherwise it rides as a reference. `sig` is opaque base64 identity material and `cert` the matching delegation certificate as a JSON object string (docs/IDENTITY.md); both are stored and forwarded unchanged.',
         outputSchema: self::SEND_SCHEMA
     )]
     public function message_send(
@@ -87,10 +88,19 @@ class MessageTools {
         if ($epoch !== null && $kind !== 'control') {
             throw new \InvalidArgumentException('epoch is only meaningful on control messages; pass kind=control too');
         }
-        foreach (['sig' => $sig, 'cert' => $cert] as $field => $value) {
-            if ($value === null) { continue; }
-            if ($value === '' || base64_decode($value, true) === false) {
-                throw new \InvalidArgumentException("{$field} must be a non-empty base64 string");
+        // `sig` is raw base64; `cert` is a JSON object string (docs/IDENTITY.md
+        // 7.2) and stays opaque here, so only its shape is checked: parseable
+        // JSON object. Continuum never verifies or rewrites carrier material.
+        if ($sig !== null && ($sig === '' || base64_decode($sig, true) === false)) {
+            throw new \InvalidArgumentException('sig must be a non-empty base64 string');
+        }
+        if ($cert !== null) {
+            if ($cert === '') {
+                throw new \InvalidArgumentException('cert must be a non-empty JSON object string');
+            }
+            $decodedCert = json_decode($cert, true);
+            if (!is_array($decodedCert) || array_is_list($decodedCert)) {
+                throw new \InvalidArgumentException('cert must be a JSON object string (docs/IDENTITY.md 6.1)');
             }
         }
         if ($expires !== null) {
@@ -181,17 +191,30 @@ class MessageTools {
         }
         $lease = $this->storage->inboxLease(CONTINUUM_AGENT, $session, $limit, $ttlSeconds, $untargeted);
         $messages = $lease['messages'];
+        // A scoped read is only as trustworthy as the session claim behind
+        // it, so report the claim level alongside the messages (docs/IDENTITY.md 12).
+        $claim = $session === null ? null : SessionClaim::resolve(
+            $session,
+            SessionContext::declaredCert(),
+            fn(string $ws): ?array => $this->storage->loadIdentity($ws),
+            CONTINUUM_AGENT,
+        );
         $this->storage->appendLog(CONTINUUM_AGENT, 'message_lease', [
             'lease' => $lease['id'], 'session' => $session, 'count' => count($messages), 'ttl' => $ttlSeconds,
+            'session_proof' => $claim['status'] ?? null,
         ]);
         $data = [
             'agent' => CONTINUUM_AGENT,
             'lease' => $lease['id'],
             'expires_at' => $lease['expires_at'],
+            'session_proof' => $claim['status'] ?? null,
             'count' => count($messages),
             'messages' => $messages,
         ];
         $scope = $session !== null ? " for session {$session}" : ' (untargeted)';
+        if ($claim !== null) {
+            $scope .= ' [' . $claim['status'] . ($claim['reason'] !== null ? ': ' . $claim['reason'] : '') . ']';
+        }
         $lines = ['# Leased ' . count($messages) . ' message(s)' . $scope
             . "; lease {$lease['id']}, until {$lease['expires_at']}"];
         if ($messages === []) {
@@ -374,10 +397,11 @@ class MessageTools {
             'agent' => ['type' => 'string'],
             'lease' => ['type' => 'string'],
             'expires_at' => ['type' => 'string'],
+            'session_proof' => ['type' => ['string', 'null']],
             'count' => ['type' => 'integer'],
             'messages' => ['type' => 'array', 'items' => self::MESSAGE_SCHEMA],
         ],
-        'required' => ['agent', 'lease', 'expires_at', 'count', 'messages'],
+        'required' => ['agent', 'lease', 'expires_at', 'session_proof', 'count', 'messages'],
     ];
 
     private const ACK_SCHEMA = [
