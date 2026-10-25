@@ -36,6 +36,7 @@ use Continuum\IdentityResources;
 use Continuum\CoordinationPrompts;
 use Continuum\Storage\ContinuumStorage;
 use Continuum\Bridge\HeliofaneMcpBridge;
+use Continuum\Injection\InjectionManager;
 
 // stdio has no transport auth; attribute everything to a fixed identity.
 defined('CONTINUUM_AGENT') || define('CONTINUUM_AGENT', 'stdio');
@@ -73,7 +74,8 @@ if ($xmppSocket !== '') {
     $xmppBridge = new \Continuum\Bridge\XmppBridgeClient($xmppSocket);
 }
 $signKeyFile = trim($SETTINGS?->getString('identity', 'sign_key_file', '') ?? '');
-$server->register(new MessageTools($storage, $xmppBridge, $xmppDomain, $signKeyFile !== '' ? $signKeyFile : null));
+$injection = InjectionManager::fromSettings($SETTINGS);
+$server->register(new MessageTools($storage, $xmppBridge, $xmppDomain, $signKeyFile !== '' ? $signKeyFile : null, $injection));
 $server->register(new EventTools($storage));
 $server->register(new StatusTools($storage));
 

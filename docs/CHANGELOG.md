@@ -6,6 +6,21 @@ introduces them (see AGENTS.md). Version parity is enforced between
 
 ## Unreleased
 
+### Added
+
+- Direct session injection for `message_send`
+  ([issue #13](https://pacyworld.dev/buenapp/continuum/issues/13)):
+  optional `preemption` (`wakeup`, `steer`, `interrupt`) requires a session,
+  checks harness liveness, and delivers through operator-configured
+  OpenHands/OpenCode REST or JSON-over-TCP transports. Successful pushes
+  return `queued=false, pushed=true` and skip the local inbox; unavailable
+  or failed pushes use the existing XMPP/inbox path and report
+  `pushed=false` with `fallback_reason`. OpenHands' saved-but-not-resumed
+  HTTP 429 response is handled without duplicating the message. Per-agent
+  `[injection.<agent>]` configuration supports credential-file references,
+  session-ID resolution, and explicit OpenCode wire versions; ACP remains
+  a documented future adapter. See `docs/DIRECT-INJECTION.md`.
+
 ## 0.5.0 (2026-10-22)
 
 ### Changed

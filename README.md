@@ -61,6 +61,16 @@ registered-at) and the newest beat across sessions. Directory views
 under their agent. Session-less legacy clients keep last-writer-wins
 agent-level behavior.
 
+### Direct session injection
+
+`message_send` remains queued by default. With an explicit session and
+`preemption` (`wakeup`, `steer`, or `interrupt`), an operator-configured
+OpenHands, OpenCode, or JSON-over-TCP transport can push into a live session
+after a liveness check. Failed or unavailable push attempts use the normal
+XMPP/inbox fallback and report `pushed=false` with a reason. Configuration,
+wire contracts, and identity-carrier behavior are in
+`docs/DIRECT-INJECTION.md`.
+
 ## Terminology
 
 Two different "task" concepts exist in this space; keep them separate in

@@ -40,6 +40,7 @@ use Continuum\Bridge\NullMilestoneSyncAdapter;
 use Continuum\Bridge\HeliofaneMcpBridge;
 use Continuum\Bridge\EmbeddingProvider;
 use Continuum\Bridge\EmbeddingRanker;
+use Continuum\Injection\InjectionManager;
 use Continuum\Storage\MetricsStore;
 use Continuum\Storage\MetricsCollector;
 use Continuum\Storage\PrometheusExporter;
@@ -173,7 +174,8 @@ $server->register(new LockTools($storage));
 $server->register(new ContextTools($storage, $ranker));
 $server->register(new AgentTools($storage));
 $signKeyFile = trim($SETTINGS?->getString('identity', 'sign_key_file', '') ?? '');
-$server->register(new MessageTools($storage, $xmppBridge, $xmppDomain, $signKeyFile !== '' ? $signKeyFile : null));
+$injection = InjectionManager::fromSettings($SETTINGS);
+$server->register(new MessageTools($storage, $xmppBridge, $xmppDomain, $signKeyFile !== '' ? $signKeyFile : null, $injection));
 $server->register(new EventTools($storage));
 $server->register(new StatusTools($storage));
 // Memory promotion rides a Heliofane bridge; when unconfigured the tool

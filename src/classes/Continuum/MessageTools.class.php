@@ -5,15 +5,19 @@ namespace Continuum;
 use EnchiladaMCP\McpTool;
 use EnchiladaMCP\ToolResult;
 use Continuum\Identity\Attestor;
+use Continuum\Injection\InjectionManager;
 use Continuum\Storage\ContinuumStorage;
 use Continuum\Bridge\XmppBridgeInterface;
 
 /**
  * Agent-to-agent messaging on per-agent inboxes (ValKey lists).
  *
- * Pull model: recipients fetch their own inbox; nothing is pushed to a
- * client. Sends, leases and acknowledgements are logged; pulls are not
- * (assumed read-mostly churn). Messages may carry targeting fields:
+ * Pull model is the default: recipients fetch their own inbox. An explicit
+ * preemption request may instead push to a configured live session transport;
+ * failed or unavailable push attempts fall back to the normal XMPP/inbox
+ * path and report that they queued. Sends, leases and acknowledgements are
+ * logged; pulls are not (assumed read-mostly churn). Messages may carry
+ * targeting fields:
  *   session  - only a reader on that session (or message_lease scoped
  *              to it) receives it
  *   task     - resolved at send time to the session bound to the task
@@ -42,6 +46,7 @@ class MessageTools {
 
     private const KINDS = ['notice', 'context', 'directive', 'control'];
     private const PRIORITIES = ['normal', 'urgent'];
+    private const PREEMPTIONS = ['wakeup', 'steer', 'interrupt'];
 
     private ?Attestor $attestor = null;
 
@@ -50,6 +55,7 @@ class MessageTools {
         private ?XmppBridgeInterface $xmppBridge = null,
         private ?string $xmppDomain = null,
         ?string $signKeyFile = null,
+        private ?InjectionManager $injection = null,
     ) {
         // Attestation key material loads once per process; an unset
         // [identity] sign_key_file leaves the send path untouched.
@@ -60,7 +66,7 @@ class MessageTools {
 
     #[McpTool(
         name: 'message_send',
-        description: 'Send a message to another agent\'s inbox. Optional targeting: session (delivered only to that session), task (resolves to the session bound to the task), kind (notice|context|directive|control), priority (normal|urgent), expires (ISO 8601), replyTo (message id), epoch (master epoch; control kind only). `task` targets the session working the task only when `to` is the task\'s owner; otherwise it rides as a reference. `sig` and `cert` are opaque base64 identity material (docs/IDENTITY.md) stored and forwarded unchanged.',
+        description: 'Send a message to another agent. Optional targeting: session (delivered only to that session), task (resolves to the session bound to the task), kind (notice|context|directive|control), priority (normal|urgent), expires (ISO 8601), replyTo (message id), epoch (master epoch; control kind only). `task` targets the session working the task only when `to` is the task\'s owner; otherwise it rides as a reference. `sig` and `cert` are opaque base64 identity material (docs/IDENTITY.md) stored and forwarded unchanged. Optional preemption (wakeup|steer|interrupt) requires a session and tries the configured live transport; unavailable or failed injection falls back to XMPP/inbox and reports pushed=false plus fallback_reason.',
         outputSchema: self::SEND_SCHEMA
     )]
     public function message_send(
@@ -76,8 +82,12 @@ class MessageTools {
         ?string $epoch = null,
         ?string $sig = null,
         ?string $cert = null,
+        ?string $preemption = null,
     ): ToolResult {
         if ($to === '') { throw new \RuntimeException('recipient must not be empty'); }
+        if ($preemption !== null && !in_array($preemption, self::PREEMPTIONS, true)) {
+            throw new \InvalidArgumentException('invalid preemption; expected one of: ' . implode(', ', self::PREEMPTIONS));
+        }
         if ($kind !== null && !in_array($kind, self::KINDS, true)) {
             throw new \InvalidArgumentException('invalid kind; expected one of: ' . implode(', ', self::KINDS));
         }
@@ -112,6 +122,9 @@ class MessageTools {
                 $session = $bound;
             }
         }
+        if ($preemption !== null && ($session === null || $session === '')) {
+            throw new \InvalidArgumentException('preemption requires an explicit session or a task bound to one');
+        }
         if ($session !== null) {
             // Recipients with no published session presence stay exempt
             // (first-use and legacy flows may register the session later).
@@ -130,17 +143,58 @@ class MessageTools {
         if ($this->attestor !== null) {
             $envelope['attest'] = $this->attestor->attest(['to' => $to] + $envelope, CONTINUUM_AGENT);
         }
+        $attempt = null;
+        if ($preemption !== null) {
+            $attempt = $this->injection?->deliver($to, $session, $envelope, $preemption) ?? [
+                'pushed' => false, 'transport' => null, 'liveness' => null,
+                'reason' => 'no direct transport configured',
+            ];
+            if ($attempt['pushed']) {
+                $ack = $attempt['ack'] ?? [];
+                $log = [
+                    'id' => $id, 'to' => $to, 'topic' => $topic, 'session' => $session, 'task' => $task,
+                    'kind' => $kind, 'priority' => $priority, 'expires' => $expires, 'length' => strlen($body),
+                    'via' => $attempt['transport'], 'pushed' => true, 'preemption' => $preemption,
+                    'liveness' => $attempt['liveness'],
+                ];
+                $data = [
+                    'id' => $id, 'to' => $to, 'queued' => false, 'pushed' => true, 'depth' => 0,
+                    'via' => $attempt['transport'], 'preemption' => $preemption, 'liveness' => $attempt['liveness'],
+                ];
+                if (isset($ack['http_status'])) {
+                    $log['remote_status'] = $data['remote_status'] = (int)$ack['http_status'];
+                }
+                if (array_key_exists('resumed', $ack)) {
+                    $log['resumed'] = $data['resumed'] = (bool)$ack['resumed'];
+                }
+                $this->storage->appendLog(CONTINUUM_AGENT, 'message_send', $log);
+                $text = "Message {$id} injected into '{$to}', session {$session} via {$attempt['transport']} ({$attempt['liveness']}, {$preemption}).";
+                if (($ack['resumed'] ?? true) === false) {
+                    $text .= ' The remote saved the message but could not resume the session; it was not duplicated into the Continuum inbox.';
+                }
+                return ToolResult::structured($text, $data);
+            }
+        }
         if ($this->xmppBridge !== null) {
-            return $this->sendViaXmpp($to, $envelope);
+            return $this->sendViaXmpp($to, $envelope, $preemption, $attempt);
         }
         $depth = $this->storage->inboxPush($to, $envelope);
-        $this->storage->appendLog(CONTINUUM_AGENT, 'message_send', [
+        $log = [
             'id' => $id, 'to' => $to, 'topic' => $topic, 'session' => $session, 'task' => $task,
             'kind' => $kind, 'priority' => $priority, 'expires' => $expires, 'length' => strlen($body),
-        ]);
+        ];
         $data = ['id' => $id, 'to' => $to, 'queued' => true, 'depth' => $depth];
         $target = $session !== null ? ", session {$session}" : '';
-        return ToolResult::structured("Message {$id} queued to '{$to}'{$target} (inbox depth {$depth}).", $data);
+        $text = "Message {$id} queued to '{$to}'{$target} (inbox depth {$depth}).";
+        if ($preemption !== null) {
+            $log += ['via' => 'inbox', 'pushed' => false, 'preemption' => $preemption,
+                'liveness' => $attempt['liveness'], 'fallback_reason' => $attempt['reason']];
+            $data += ['pushed' => false, 'via' => 'inbox', 'preemption' => $preemption,
+                'liveness' => $attempt['liveness'], 'fallback_reason' => $attempt['reason']];
+            $text .= " Direct injection was not delivered: {$attempt['reason']}.";
+        }
+        $this->storage->appendLog(CONTINUUM_AGENT, 'message_send', $log);
+        return ToolResult::structured($text, $data);
     }
 
     #[McpTool(
@@ -279,7 +333,7 @@ class MessageTools {
      * path. Transport failures fail the call: silently falling back to
      * a local-only inbox would change the operator's delivery contract.
      */
-    private function sendViaXmpp(string $to, array $envelope): ToolResult {
+    private function sendViaXmpp(string $to, array $envelope, ?string $preemption = null, ?array $attempt = null): ToolResult {
         $domain = $this->xmppDomain;
         if ($domain === null || $domain === '') {
             throw new \RuntimeException('xmpp bridge configured without a domain');
@@ -294,14 +348,23 @@ class MessageTools {
         $fields['topic'] = $envelope['topic'] ?? null;
         $answer = $this->xmppBridge->send(CONTINUUM_AGENT, $jid, $envelope['body'], array_filter($fields));
         $stanzaId = is_string($answer['id'] ?? null) ? $answer['id'] : $envelope['id'];
-        $this->storage->appendLog(CONTINUUM_AGENT, 'message_send', [
+        $log = [
             'id' => $envelope['id'], 'to' => $to, 'jid' => $jid, 'stanza_id' => $stanzaId, 'via' => 'xmpp-bridge',
             'session' => $envelope['session'] ?? null, 'task' => $envelope['task'] ?? null,
             'kind' => $envelope['kind'] ?? null, 'priority' => $envelope['priority'] ?? null,
             'expires' => $envelope['expires'] ?? null, 'length' => strlen($envelope['body']),
-        ]);
+        ];
         $data = ['id' => $stanzaId, 'to' => $to, 'queued' => true, 'depth' => 0, 'via' => 'xmpp-bridge'];
-        return ToolResult::structured("Message {$stanzaId} sent over XMPP to {$jid}.", $data);
+        $text = "Message {$stanzaId} sent over XMPP to {$jid}.";
+        if ($preemption !== null) {
+            $log += ['pushed' => false, 'preemption' => $preemption,
+                'liveness' => $attempt['liveness'] ?? null, 'fallback_reason' => $attempt['reason'] ?? null];
+            $data += ['pushed' => false, 'preemption' => $preemption,
+                'liveness' => $attempt['liveness'] ?? null, 'fallback_reason' => $attempt['reason'] ?? null];
+            $text .= " Direct injection was not delivered: " . ($attempt['reason'] ?? 'unknown reason') . '.';
+        }
+        $this->storage->appendLog(CONTINUUM_AGENT, 'message_send', $log);
+        return ToolResult::structured($text, $data);
     }
 
     private static function newMessageId(): string {
@@ -354,6 +417,12 @@ class MessageTools {
             'queued' => ['type' => 'boolean'],
             'depth' => ['type' => 'integer'],
             'via' => ['type' => 'string'],
+            'pushed' => ['type' => 'boolean'],
+            'preemption' => ['type' => 'string', 'enum' => ['wakeup', 'steer', 'interrupt']],
+            'liveness' => ['type' => ['string', 'null'], 'enum' => ['running', 'idle', 'unreachable', null]],
+            'fallback_reason' => ['type' => ['string', 'null']],
+            'remote_status' => ['type' => 'integer'],
+            'resumed' => ['type' => 'boolean'],
         ],
         'required' => ['id', 'to', 'queued', 'depth'],
     ];

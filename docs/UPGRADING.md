@@ -37,6 +37,23 @@ identity registry as workstream `continuum` so receivers can pin it.
 Leave it unset and sends behave exactly as before. See
 `docs/IDENTITY.md` for the byte-exact spec and verification rules.
 
+### Direct session injection (issue #13)
+
+No operator action is required. Without the new `preemption` argument,
+`message_send` follows the existing inbox/XMPP path unchanged.
+
+To enable live delivery, add operator-owned `[injection.<agent>]` sections
+(see `docs/DIRECT-INJECTION.md` and `settings.ini.sample`). Configure only
+credential-file references, not secrets in the public tree. `preemption`
+requires a session target; a successful push returns `pushed=true` and does
+not create an inbox duplicate. If no transport is configured, the session is
+unreachable, or the transport fails, the send uses the existing XMPP/inbox
+fallback and returns `pushed=false` with `fallback_reason`.
+
+The optional `[injection] enabled` and `timeout` settings control all targets.
+OpenCode `payload` must match the deployed API wire version (`text`, `nested`,
+or `parts`). ACP/stdio is not yet an implemented transport.
+
 ## 0.4.1 (messaging hardening + strict-client schema fix)
 
 No operator action: no new settings keys, no engine schema changes.

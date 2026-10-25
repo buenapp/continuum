@@ -85,3 +85,58 @@ debug = false
 ; JID <identity>@<domain>; a session target rides in the sonya payload.
 ;socket = /var/run/continuum-xmpp-bridge.sock
 ;domain = xmpp.example.com
+
+; Direct session injection (issue #13), strictly optional and operator-owned.
+; message_send(..., preemption: wakeup|steer|interrupt) tries the target's
+; live transport after a liveness check. Without preemption, behavior is
+; unchanged. Failed/unavailable injection falls back to XMPP or the inbox and
+; reports pushed=false + fallback_reason. See docs/DIRECT-INJECTION.md.
+[injection]
+;enabled = true
+;timeout = 5
+;
+; OpenCode 2.0.x (top-level text payload). Use payload="nested" for the
+; prompt:{text:...} variant, or payload="parts" for the legacy API.
+; transport="rest" plus driver="opencode" is an equivalent declaration.
+;[injection.opencode]
+;transport = "opencode"
+;driver = "opencode"
+;base_url = "http://127.0.0.1:4555"
+;payload = "text"
+;auth_scheme = "basic"
+;username = "opencode"
+;credential_file = "/var/db/continuum/opencode.password"
+;session_resolution = "message"
+;session_id = ""
+;session_map = "{}"
+;ca_file = ""
+;timeout = 5
+;
+; OpenHands agent-server. header auth defaults to X-Session-API-Key.
+;[injection.openhands]
+;transport = "openhands"
+;base_url = "http://127.0.0.1:18000"
+;auth_scheme = "header"
+;auth_header = "X-Session-API-Key"
+;credential_file = "/var/db/continuum/openhands.key"
+;session_resolution = "map"
+;session_map = '{"continuum-session-id":"openhands-conversation-id"}'
+;session_id = ""
+;ca_file = ""
+;timeout = 5
+;
+; Custom JSON-lines agent. transport="tcp" (or "tcp-json"); scheme="tls"
+; enables verified TLS. See docs/DIRECT-INJECTION.md for the request contract.
+;[injection.custom]
+;transport = "tcp"
+;host = "127.0.0.1"
+;port = 45432
+;scheme = "tcp"
+;session_resolution = "message"
+;session_id = ""
+;session_map = "{}"
+;ca_file = ""
+;timeout = 5
+;
+; auth_scheme also accepts "none", "bearer", or "header" on REST targets.
+; ACP/stdio is reserved for a future topology; XMPP stays under [xmpp].

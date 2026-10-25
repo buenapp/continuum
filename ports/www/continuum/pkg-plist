@@ -30,6 +30,15 @@
 %%WWWDIR%%/classes/Continuum/Bridge/RankingProviderInterface.class.php
 %%WWWDIR%%/classes/Continuum/Bridge/XmppBridgeClient.class.php
 %%WWWDIR%%/classes/Continuum/Bridge/XmppBridgeInterface.class.php
+%%WWWDIR%%/classes/Continuum/Injection/CurlHttpClient.class.php
+%%WWWDIR%%/classes/Continuum/Injection/HttpClientInterface.class.php
+%%WWWDIR%%/classes/Continuum/Injection/InjectionManager.class.php
+%%WWWDIR%%/classes/Continuum/Injection/InjectionTransportInterface.class.php
+%%WWWDIR%%/classes/Continuum/Injection/OpenCodeTransport.class.php
+%%WWWDIR%%/classes/Continuum/Injection/OpenHandsTransport.class.php
+%%WWWDIR%%/classes/Continuum/Injection/RestTransport.class.php
+%%WWWDIR%%/classes/Continuum/Injection/TcpJsonTransport.class.php
+%%WWWDIR%%/classes/Continuum/Injection/TransportException.class.php
 %%WWWDIR%%/classes/Continuum/Storage/ArcadeDBStore.class.php
 %%WWWDIR%%/classes/Continuum/Storage/ContinuumStorage.class.php
 %%WWWDIR%%/classes/Continuum/Storage/ContinuumStorageInterface.class.php

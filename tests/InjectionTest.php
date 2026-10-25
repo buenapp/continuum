@@ -1,0 +1,248 @@
+<?php
+
+namespace Continuum\Tests;
+
+use PHPUnit\Framework\TestCase;
+use Continuum\Injection\HttpClientInterface;
+use Continuum\Injection\InjectionManager;
+use Continuum\Injection\InjectionTransportInterface;
+use Continuum\Injection\OpenCodeTransport;
+use Continuum\Injection\OpenHandsTransport;
+use Continuum\Injection\TcpJsonTransport;
+use Continuum\Injection\TransportException;
+use Enchilada\Config\IniConfig;
+
+/** Records HTTP requests and replays response arrays or exceptions. */
+class FakeInjectionHttpClient implements HttpClientInterface {
+    public array $calls = [];
+    public function __construct(private array $script = []) {}
+    public function request(string $method, string $path, ?array $payload = null, array $headers = []): array {
+        $this->calls[] = ['method' => $method, 'path' => $path, 'payload' => $payload, 'headers' => $headers];
+        $next = array_shift($this->script);
+        if ($next instanceof \Throwable) { throw $next; }
+        if (!is_array($next)) { throw new \RuntimeException('FakeInjectionHttpClient script exhausted'); }
+        return $next;
+    }
+}
+
+class InjectionTest extends TestCase {
+    private function ok(array $body = [], int $status = 200): array {
+        return ['status' => $status, 'body' => $body];
+    }
+
+    public function testOpenHandsInjectsBodyAndLosslessEnvelope(): void {
+        $http = new FakeInjectionHttpClient([
+            $this->ok(['execution_status' => 'idle']),
+            $this->ok(['success' => true]),
+        ]);
+        $transport = new OpenHandsTransport('http://localhost', [
+            'scheme' => 'header', 'header' => 'X-Session-API-Key', 'credential' => 'secret',
+        ], http: $http);
+        $this->assertSame(InjectionTransportInterface::IDLE, $transport->liveness('conv/1'));
+        $envelope = ['id' => 'M-1', 'from' => 'alice', 'body' => 'hello', 'sig' => 'c2ln', 'cert' => '{"x":1}', 'attest' => 'YXR0ZXN0'];
+        $transport->inject('conv/1', $envelope, 'wakeup', InjectionTransportInterface::IDLE);
+        $this->assertSame('/api/conversations/conv%2F1', $http->calls[0]['path']);
+        $this->assertSame('/api/conversations/conv%2F1/events', $http->calls[1]['path']);
+        $payload = $http->calls[1]['payload'];
+        $this->assertTrue($payload['run']);
+        $this->assertSame('hello', $payload['content'][0]['text']);
+        $this->assertSame($envelope, json_decode($payload['content'][1]['text'], true));
+        $this->assertContains('X-Session-API-Key: secret', $http->calls[1]['headers']);
+    }
+
+    public function testOpenHandsInterruptsRunningSessionBeforeInjection(): void {
+        $http = new FakeInjectionHttpClient([$this->ok(), $this->ok(['success' => true])]);
+        $transport = new OpenHandsTransport('http://localhost', http: $http);
+        $transport->inject('c1', ['id' => 'M-1', 'body' => 'stop'], 'interrupt', InjectionTransportInterface::RUNNING);
+        $this->assertSame('/api/conversations/c1/interrupt', $http->calls[0]['path']);
+        $this->assertSame('/api/conversations/c1/events', $http->calls[1]['path']);
+        $this->assertTrue($http->calls[1]['payload']['run']);
+    }
+
+    public function testOpenHandsSteerDoesNotResume(): void {
+        $http = new FakeInjectionHttpClient([$this->ok(['success' => true])]);
+        $transport = new OpenHandsTransport('http://localhost', http: $http);
+        $transport->inject('c1', ['id' => 'M-1', 'body' => 'context'], 'steer', InjectionTransportInterface::RUNNING);
+        $this->assertFalse($http->calls[0]['payload']['run']);
+        $this->assertCount(1, $http->calls);
+    }
+
+    public function testOpenHandsSavedButNotResumedIsAcceptedWithoutFallback(): void {
+        $http = new FakeInjectionHttpClient([$this->ok(['error' => 'run capacity full'], 429)]);
+        $transport = new OpenHandsTransport('http://localhost', http: $http);
+        $ack = $transport->inject('c1', ['id' => 'M-1', 'body' => 'hello'], 'wakeup', InjectionTransportInterface::IDLE);
+        $this->assertSame(429, $ack['http_status']);
+        $this->assertFalse($ack['resumed']);
+    }
+
+    public function testOpenCodeUsesCurrentTextPromptAndMetadata(): void {
+        $http = new FakeInjectionHttpClient([
+            $this->ok(['data' => ['id' => 'ses-1']]),
+            $this->ok(['data' => []]),
+            $this->ok(['data' => ['id' => 'input-1']]),
+        ]);
+        $transport = new OpenCodeTransport('http://localhost', [
+            'scheme' => 'basic', 'username' => 'opencode', 'credential' => 'password',
+        ], http: $http);
+        $this->assertSame(InjectionTransportInterface::IDLE, $transport->liveness('ses-1'));
+        $envelope = ['id' => 'M-1', 'from' => 'alice', 'body' => 'hello', 'session' => 'logical-1', 'attest' => 'YXR0ZXN0'];
+        $transport->inject('ses-1', $envelope, 'steer', InjectionTransportInterface::IDLE);
+        $this->assertSame('/api/session/ses-1/prompt', $http->calls[2]['path']);
+        $payload = $http->calls[2]['payload'];
+        $this->assertSame('hello', $payload['text']);
+        $this->assertFalse($payload['resume']);
+        $this->assertSame('steer', $payload['delivery']);
+        $this->assertSame($envelope, $payload['metadata']['continuum']);
+        $this->assertArrayNotHasKey('parts', $payload);
+        $this->assertContains('Authorization: Basic ' . base64_encode('opencode:password'), $http->calls[2]['headers']);
+    }
+
+    public function testOpenCodeUnknownLivenessFailsClosed(): void {
+        $http = new FakeInjectionHttpClient([
+            $this->ok(['data' => ['id' => 'ses-1']]),
+            $this->ok([], 404),
+        ]);
+        $transport = new OpenCodeTransport('http://localhost', http: $http);
+        $this->expectException(TransportException::class);
+        $this->expectExceptionMessageMatches('/cannot determine/');
+        $transport->liveness('ses-1');
+    }
+
+    public function testOpenCodeActiveSessionIsRunningAndInterrupts(): void {
+        $http = new FakeInjectionHttpClient([
+            $this->ok(['data' => ['id' => 'ses-1']]),
+            $this->ok(['data' => ['ses-1' => ['status' => 'busy']]]),
+            $this->ok(),
+            $this->ok(['data' => ['id' => 'input-1']]),
+        ]);
+        $transport = new OpenCodeTransport('http://localhost', http: $http);
+        $this->assertSame(InjectionTransportInterface::RUNNING, $transport->liveness('ses-1'));
+        $transport->inject('ses-1', ['id' => 'M-1', 'body' => 'stop'], 'interrupt', InjectionTransportInterface::RUNNING);
+        $this->assertSame('/api/session/ses-1/interrupt', $http->calls[2]['path']);
+        $this->assertSame('/api/session/ses-1/prompt', $http->calls[3]['path']);
+        $this->assertTrue($http->calls[3]['payload']['resume']);
+    }
+
+    public function testOpenCodeNestedPayloadUsesTextCarrierWithoutMetadata(): void {
+        $http = new FakeInjectionHttpClient([$this->ok(['data' => ['id' => 'input-1']])]);
+        $transport = new OpenCodeTransport('http://localhost', http: $http, payloadStyle: 'nested');
+        $envelope = ['id' => 'M-1', 'body' => 'hello', 'sig' => 'c2ln'];
+        $transport->inject('ses-1', $envelope, 'wakeup', InjectionTransportInterface::IDLE);
+        $payload = $http->calls[0]['payload'];
+        $this->assertArrayNotHasKey('metadata', $payload);
+        $this->assertArrayNotHasKey('text', $payload);
+        $this->assertStringStartsWith("hello\n\n<continuum-envelope>\n", $payload['prompt']['text']);
+        $json = explode("\n", $payload['prompt']['text'])[3];
+        $this->assertSame($envelope, json_decode($json, true));
+    }
+
+    public function testOpenCodeLegacyPartsUsesAsyncEndpoint(): void {
+        $http = new FakeInjectionHttpClient([$this->ok([], 204)]);
+        $transport = new OpenCodeTransport('http://localhost', http: $http, payloadStyle: 'parts');
+        $envelope = ['id' => 'M-1', 'body' => 'hello', 'sig' => 'c2ln'];
+        $transport->inject('ses-1', $envelope, 'wakeup', InjectionTransportInterface::IDLE);
+        $this->assertSame('/api/session/ses-1/prompt_async', $http->calls[0]['path']);
+        $this->assertSame('hello', $http->calls[0]['payload']['parts'][0]['text']);
+        $this->assertSame($envelope, json_decode($http->calls[0]['payload']['parts'][1]['text'], true));
+        $this->assertFalse($http->calls[0]['payload']['noReply']);
+    }
+
+    public function testRestHttpErrorIsNotReportedAsAccepted(): void {
+        $http = new FakeInjectionHttpClient([$this->ok(['error' => 'busy'], 409)]);
+        $transport = new OpenCodeTransport('http://localhost', http: $http);
+        $this->expectException(TransportException::class);
+        $this->expectExceptionMessageMatches('/HTTP 409/');
+        $transport->inject('ses-1', ['id' => 'M-1', 'body' => 'hello'], 'wakeup', InjectionTransportInterface::IDLE);
+    }
+
+    public function testTcpJsonCarriesPreemptionAndWholeEnvelope(): void {
+        $requests = [];
+        $transport = new TcpJsonTransport('localhost', 4444, connector: function (array $request) use (&$requests): array {
+            $requests[] = $request;
+            return $request['op'] === 'liveness' ? ['state' => 'running'] : ['accepted' => true, 'id' => 'remote-1'];
+        });
+        $this->assertSame(InjectionTransportInterface::RUNNING, $transport->liveness('s1'));
+        $envelope = ['id' => 'M-1', 'body' => 'hello', 'cert' => '{"x":1}'];
+        $result = $transport->inject('s1', $envelope, 'interrupt', InjectionTransportInterface::RUNNING);
+        $this->assertSame('remote-1', $result['remote']);
+        $this->assertSame(['liveness', 'interrupt', 'inject'], array_column($requests, 'op'));
+        $this->assertSame($envelope, $requests[2]['envelope']);
+        $this->assertSame('interrupt', $requests[2]['preemption']);
+    }
+
+    public function testTcpJsonRequiresExplicitAcceptance(): void {
+        $transport = new TcpJsonTransport('localhost', 4444, connector: fn(array $request): array => ['ok' => false]);
+        $this->expectException(TransportException::class);
+        $transport->inject('s1', ['id' => 'M-1', 'body' => 'hello'], 'wakeup', InjectionTransportInterface::IDLE);
+    }
+
+    public function testManagerMapsSessionAndFallsBackWithoutThrowing(): void {
+        $transport = new FakeInjectionTransport('test-transport');
+        $manager = new InjectionManager([
+            'bob' => ['transport' => $transport, 'session_resolution' => 'map', 'session_map' => ['logical' => 'harness']],
+        ]);
+        $result = $manager->deliver('bob', 'logical', ['id' => 'M-1', 'body' => 'hello'], 'wakeup');
+        $this->assertTrue($result['pushed']);
+        $this->assertSame('harness', $transport->calls[0]['session']);
+        $this->assertSame('harness', $transport->calls[1]['session']);
+        $missing = $manager->deliver('bob', 'other', ['id' => 'M-2', 'body' => 'hello'], 'wakeup');
+        $this->assertFalse($missing['pushed']);
+        $this->assertStringContainsString('no harness session mapping', $missing['reason']);
+        $unconfigured = $manager->deliver('nobody', 's', [], 'wakeup');
+        $this->assertFalse($unconfigured['pushed']);
+        $this->assertSame('no direct transport configured', $unconfigured['reason']);
+    }
+
+    public function testManagerSkipsInjectionWhenSessionUnreachable(): void {
+        $transport = new FakeInjectionTransport();
+        $transport->state = InjectionTransportInterface::UNREACHABLE;
+        $manager = new InjectionManager(['bob' => ['transport' => $transport]]);
+        $result = $manager->deliver('bob', 's', ['id' => 'M-1'], 'interrupt');
+        $this->assertFalse($result['pushed']);
+        $this->assertSame(InjectionTransportInterface::UNREACHABLE, $result['liveness']);
+        $this->assertCount(1, $transport->calls);
+    }
+
+    public function testSettingsParseTargetsAndNeverRequireNetwork(): void {
+        $file = tempnam(sys_get_temp_dir(), 'continuum-injection-');
+        $ini = <<<'INI'
+[injection]
+enabled = true
+timeout = 7
+[injection.opencode]
+transport = "opencode"
+base_url = "http://127.0.0.1:4555"
+auth_scheme = "basic"
+credential_file = "/var/db/continuum/opencode.password"
+payload = "text"
+session_resolution = "map"
+session_map = '{"logical":"harness"}'
+[injection.quiet]
+transport = "null"
+INI;
+        file_put_contents($file, $ini);
+        try {
+            $manager = InjectionManager::fromSettings(IniConfig::load($file));
+            $reflection = new \ReflectionProperty(InjectionManager::class, 'targets');
+            $targets = $reflection->getValue($manager);
+            $this->assertArrayHasKey('opencode', $targets);
+            $this->assertInstanceOf(OpenCodeTransport::class, $targets['opencode']['transport']);
+            $this->assertSame('map', $targets['opencode']['session_resolution']);
+            $this->assertArrayNotHasKey('quiet', $targets);
+        } finally {
+            @unlink($file);
+        }
+    }
+
+    public function testSettingsRejectUnsupportedAcpInsteadOfPretendingToPush(): void {
+        $file = tempnam(sys_get_temp_dir(), 'continuum-injection-');
+        file_put_contents($file, "[injection.devin]\ntransport = \"acp\"\n");
+        try {
+            $this->expectException(\InvalidArgumentException::class);
+            $this->expectExceptionMessageMatches('/future ACP/');
+            InjectionManager::fromSettings(IniConfig::load($file));
+        } finally {
+            @unlink($file);
+        }
+    }
+}

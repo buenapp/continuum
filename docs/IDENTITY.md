@@ -93,9 +93,13 @@ MCP boundary: `message_send` shape-checks `sig`/`cert` (non-empty,
 base64-decodable) and stores them unchanged; `attest` is computed by
 Continuum (6.3). Reads (`message_lease`, `message_inbox_pull`) return
 all three unchanged, and the XMPP bridge carries them in the sonya
-payload (`urn:sonya:message:0` fields `sig`, `cert`, `attest`).
-Verification is always the receiver's job; Continuum never rewrites or
-strips carrier fields.
+payload (`urn:sonya:message:0` fields `sig`, `cert`, `attest`). Direct
+session-injection transports carry the same envelope after attestation:
+OpenCode's `text` payload uses `metadata.continuum`, its `nested` payload uses
+a marked JSON text trailer, and OpenHands and the legacy parts adapter use a
+second JSON text item; the TCP adapter carries `envelope` directly.
+Verification is always the receiver's job; Continuum never rewrites or strips
+carrier fields.
 
 ## 6. Signature schemes
 

@@ -31,6 +31,7 @@ do-install:
 	@${MKDIR} ${STAGEDIR}${WWWDIR}
 	@${MKDIR} ${STAGEDIR}${WWWDIR}/bin
 	@${MKDIR} ${STAGEDIR}${WWWDIR}/classes/Continuum/Bridge
+	@${MKDIR} ${STAGEDIR}${WWWDIR}/classes/Continuum/Injection
 	@${MKDIR} ${STAGEDIR}${WWWDIR}/classes/Continuum/Storage
 	@${MKDIR} ${STAGEDIR}${WWWDIR}/config
 	@${MKDIR} ${STAGEDIR}${WWWDIR}/includes
@@ -45,6 +46,7 @@ do-install:
 	${INSTALL_SCRIPT} ${WRKSRC}/src/bin/smoke-test ${STAGEDIR}${WWWDIR}/bin/
 	${INSTALL_DATA} ${WRKSRC}/src/classes/Continuum/*.php ${STAGEDIR}${WWWDIR}/classes/Continuum/
 	${INSTALL_DATA} ${WRKSRC}/src/classes/Continuum/Bridge/*.php ${STAGEDIR}${WWWDIR}/classes/Continuum/Bridge/
+	${INSTALL_DATA} ${WRKSRC}/src/classes/Continuum/Injection/*.php ${STAGEDIR}${WWWDIR}/classes/Continuum/Injection/
 	${INSTALL_DATA} ${WRKSRC}/src/classes/Continuum/Storage/*.php ${STAGEDIR}${WWWDIR}/classes/Continuum/Storage/
 	${INSTALL_DATA} ${WRKSRC}/src/config/settings.ini.sample ${STAGEDIR}${WWWDIR}/config/
 	${INSTALL_DATA} ${WRKSRC}/src/config/instructions.txt ${STAGEDIR}${WWWDIR}/config/

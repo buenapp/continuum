@@ -73,3 +73,24 @@ class FakeHeliofaneBridge extends \Continuum\Bridge\HeliofaneMcpBridge {
         return array_shift($this->script) ?? ['ok' => true, 'result' => [], 'error' => null];
     }
 }
+
+/** Scripted live-delivery transport; no network or storage involved. */
+class FakeInjectionTransport implements \Continuum\Injection\InjectionTransportInterface {
+    /** @var array<int,array> */ public array $calls = [];
+    public string $state = self::IDLE;
+    public ?string $fail = null;
+    public array $ack = ['accepted' => true];
+    public function __construct(private string $name = 'fake') {}
+    public function transportName(): string { return $this->name; }
+    public function liveness(string $sessionId): string {
+        $this->calls[] = ['op' => 'liveness', 'session' => $sessionId];
+        if ($this->fail === 'liveness') { throw new \Continuum\Injection\TransportException('liveness failed'); }
+        return $this->state;
+    }
+    public function inject(string $sessionId, array $envelope, string $preemption, string $liveness): array {
+        $this->calls[] = ['op' => 'inject', 'session' => $sessionId, 'envelope' => $envelope,
+            'preemption' => $preemption, 'liveness' => $liveness];
+        if ($this->fail === 'inject') { throw new \Continuum\Injection\TransportException('inject failed'); }
+        return $this->ack;
+    }
+}
