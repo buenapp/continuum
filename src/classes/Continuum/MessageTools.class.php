@@ -67,7 +67,7 @@ class MessageTools {
 
     #[McpTool(
         name: 'message_send',
-        description: 'Send a message to another agent. Optional targeting: session (delivered only to that session), task (resolves to the session bound to the task), kind (notice|context|directive|control), priority (normal|urgent), expires (ISO 8601), replyTo (message id), epoch (master epoch; control kind only). `task` targets the session working the task only when `to` is the task\'s owner; otherwise it rides as a reference. `sig` and `cert` are opaque base64 identity material (docs/IDENTITY.md) stored and forwarded unchanged. Optional preemption (wakeup|steer|interrupt) requires a session and adds a configured live transport. Configured XMPP is still used first for real-time delivery; supplemental injection results are reported separately. Without XMPP, unavailable or failed injection falls back to the inbox with pushed=false plus fallback_reason.',
+        description: 'Send a message to another agent. Optional session/task targeting, kind (notice|context|directive|control), priority (normal|urgent), expires (ISO 8601), replyTo, epoch (control only), sig/cert, and preemption (wakeup|steer|interrupt; session required).',
         outputSchema: self::SEND_SCHEMA
     )]
     public function message_send(
