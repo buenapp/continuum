@@ -25,6 +25,15 @@ introduces them (see AGENTS.md). Version parity is enforced between
   session-ID resolution, and explicit OpenCode wire versions; ACP remains
   a documented future adapter. See `docs/DIRECT-INJECTION.md`.
 
+### Changed
+
+- Direct-injection HTTP calls use the existing
+  `Enchilada\Tortilla\HttpClient` over canonical Extras
+  `EnchiladaMultiHTTP`/`EnchiladaCurl`; the custom cURL and HTTP-interface
+  wrappers are removed. `EnchiladaWorkerHTTP` is vendored for the optional
+  reactor path, and the obsolete pre-split MultiHTTP copy is removed.
+  Apache mod PHP uses Tortilla's blocking, no-loop mode.
+
 ## 0.5.0 (2026-10-22)
 
 ### Changed

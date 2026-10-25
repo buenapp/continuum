@@ -64,6 +64,12 @@ The optional `[injection] enabled` and `timeout` settings control all targets.
 OpenCode `payload` must match the deployed API wire version (`text`, `nested`,
 or `parts`). ACP/stdio is not yet an implemented transport.
 
+The package now includes canonical Extras `EnchiladaCurl`,
+`EnchiladaMultiHTTP`, and `EnchiladaWorkerHTTP`; the old pre-split MultiHTTP
+copy is removed. Direct-injection HTTP calls use Tortilla's existing client.
+Apache mod PHP needs no event loop or worker pool: it uses the blocking
+no-loop path, with the configured timeout bounding the outbound wait.
+
 ## 0.4.1 (messaging hardening + strict-client schema fix)
 
 No operator action: no new settings keys, no engine schema changes.

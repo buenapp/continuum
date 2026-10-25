@@ -37,6 +37,9 @@ do-install:
 	@${MKDIR} ${STAGEDIR}${WWWDIR}/includes
 	@${MKDIR} ${STAGEDIR}${WWWDIR}/libraries/Enchilada/Config
 	@${MKDIR} ${STAGEDIR}${WWWDIR}/libraries/Enchilada/Tortilla
+	@${MKDIR} ${STAGEDIR}${WWWDIR}/libraries/EnchiladaCurl
+	@${MKDIR} ${STAGEDIR}${WWWDIR}/libraries/EnchiladaMultiHTTP
+	@${MKDIR} ${STAGEDIR}${WWWDIR}/libraries/EnchiladaWorkerHTTP
 	@${MKDIR} ${STAGEDIR}${WWWDIR}/libraries/EnchiladaHTTP
 	@${MKDIR} ${STAGEDIR}${WWWDIR}/libraries/EnchiladaMCP
 	@${MKDIR} ${STAGEDIR}${WWWDIR}/libraries/EnchiladaOTLP
@@ -53,6 +56,9 @@ do-install:
 	${INSTALL_DATA} ${WRKSRC}/src/includes/*.php ${STAGEDIR}${WWWDIR}/includes/
 	${INSTALL_DATA} ${WRKSRC}/src/libraries/Enchilada/Config/*.php ${STAGEDIR}${WWWDIR}/libraries/Enchilada/Config/
 	${INSTALL_DATA} ${WRKSRC}/src/libraries/Enchilada/Tortilla/*.php ${STAGEDIR}${WWWDIR}/libraries/Enchilada/Tortilla/
+	${INSTALL_DATA} ${WRKSRC}/src/libraries/EnchiladaCurl/*.php ${STAGEDIR}${WWWDIR}/libraries/EnchiladaCurl/
+	${INSTALL_DATA} ${WRKSRC}/src/libraries/EnchiladaMultiHTTP/*.php ${STAGEDIR}${WWWDIR}/libraries/EnchiladaMultiHTTP/
+	${INSTALL_DATA} ${WRKSRC}/src/libraries/EnchiladaWorkerHTTP/*.php ${STAGEDIR}${WWWDIR}/libraries/EnchiladaWorkerHTTP/
 	${INSTALL_DATA} ${WRKSRC}/src/libraries/EnchiladaHTTP/*.php ${STAGEDIR}${WWWDIR}/libraries/EnchiladaHTTP/
 	${INSTALL_DATA} ${WRKSRC}/src/libraries/EnchiladaMCP/*.php ${STAGEDIR}${WWWDIR}/libraries/EnchiladaMCP/
 	${INSTALL_DATA} ${WRKSRC}/src/libraries/EnchiladaOTLP/*.php ${STAGEDIR}${WWWDIR}/libraries/EnchiladaOTLP/

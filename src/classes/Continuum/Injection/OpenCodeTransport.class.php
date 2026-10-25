@@ -2,6 +2,8 @@
 
 namespace Continuum\Injection;
 
+use Enchilada\Tortilla\HttpClient;
+
 /** OpenCode REST injection, with explicit support for its prompt wire versions. */
 class OpenCodeTransport extends RestTransport {
     public function __construct(
@@ -9,7 +11,7 @@ class OpenCodeTransport extends RestTransport {
         array $auth = [],
         int $timeout = 5,
         ?string $caFile = null,
-        ?HttpClientInterface $http = null,
+        ?HttpClient $http = null,
         private string $payloadStyle = 'text',
     ) {
         if (!in_array($payloadStyle, ['text', 'nested', 'parts'], true)) {

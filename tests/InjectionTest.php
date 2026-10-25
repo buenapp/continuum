@@ -3,7 +3,6 @@
 namespace Continuum\Tests;
 
 use PHPUnit\Framework\TestCase;
-use Continuum\Injection\HttpClientInterface;
 use Continuum\Injection\InjectionManager;
 use Continuum\Injection\InjectionTransportInterface;
 use Continuum\Injection\OpenCodeTransport;
@@ -11,18 +10,27 @@ use Continuum\Injection\OpenHandsTransport;
 use Continuum\Injection\TcpJsonTransport;
 use Continuum\Injection\TransportException;
 use Enchilada\Config\IniConfig;
+use Enchilada\Tortilla\HttpClient;
 
-/** Records HTTP requests and replays response arrays or exceptions. */
-class FakeInjectionHttpClient implements HttpClientInterface {
+/** Records Tortilla calls and replays response arrays or exceptions. */
+class FakeInjectionHttpClient extends HttpClient {
     public array $calls = [];
-    public function __construct(private array $script = []) {}
-    public function request(string $method, string $path, ?array $payload = null, array $headers = []): array {
-        $this->calls[] = ['method' => $method, 'path' => $path, 'payload' => $payload, 'headers' => $headers];
+    private int $status = 0;
+    private string $error = '';
+    public function __construct(private array $script = []) {
+        parent::__construct(new \EnchiladaMultiHTTP('http://localhost'));
+    }
+    public function call(string $method, $data = null, string $httpVerb = 'GET', array $extraHeaders = [], ?int $timeout = null, string $format = 'json', ?callable $writeCallback = null) {
+        $this->calls[] = ['method' => $httpVerb, 'path' => '/' . ltrim($method, '/'), 'payload' => $data, 'headers' => $extraHeaders];
         $next = array_shift($this->script);
         if ($next instanceof \Throwable) { throw $next; }
         if (!is_array($next)) { throw new \RuntimeException('FakeInjectionHttpClient script exhausted'); }
-        return $next;
+        $this->status = (int)($next['status'] ?? 0);
+        $this->error = (string)($next['error'] ?? '');
+        return $next['body'] ?? false;
     }
+    public function getHttpCode(): int { return $this->status; }
+    public function getLastCurlError(): string { return $this->error; }
 }
 
 class InjectionTest extends TestCase {

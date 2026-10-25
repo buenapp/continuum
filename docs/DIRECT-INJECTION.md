@@ -19,6 +19,12 @@ The implementation is in `Continuum\Injection\`:
   endpoint, so configuring `acp` is a configuration error rather than a false
   success.
 
+HTTP execution is delegated to the vendored `Enchilada\Tortilla\HttpClient`
+over canonical Extras `EnchiladaMultiHTTP` and `EnchiladaCurl`. Continuum's
+`RestTransport` only supplies authentication and harness-specific endpoint,
+liveness, and payload rules. Extras `REST/` is an embedded HTTP server/router,
+not a client, so it is not used for these outbound calls.
+
 No agent can self-declare an arbitrary endpoint through `agent_register`.
 Capabilities are operator-owned configuration, which prevents a compromised
 agent key from turning Continuum into an SSRF client.
@@ -230,8 +236,13 @@ This change adds no listener, daemon, persistent connection, or event loop.
 Continuum remains its existing request-scoped PHP application (Apache worker
 processes, or one stdio process). Each adapter is an outbound client owned by
 one request, has no shared mutable state, and uses bounded time and response
-budgets. The remote harness owns session queues and backpressure; Continuum's
-existing XMPP path remains the primary real-time path, with the local inbox
-as the fallback when XMPP is not configured. No new throughput or
+budgets. Under Apache mod PHP no EventLoop or Fiber is injected, so Tortilla
+uses its blocking `EnchiladaCurl::perform()` path; no worker pool or
+cross-request state is required. The Apache worker waits for the outbound
+call for the configured timeout, as it does for existing storage and XMPP
+calls. `EnchiladaWorkerHTTP` is only needed for an optional reactor/stdio
+composition. The remote harness owns session queues and backpressure;
+Continuum's existing XMPP path remains the primary real-time path, with the
+local inbox as the fallback when XMPP is not configured. No new throughput or
 connection-scale claim is made, and no long-lived ACP stream is hidden in a
 PHP worker.

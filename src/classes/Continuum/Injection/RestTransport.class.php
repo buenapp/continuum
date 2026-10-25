@@ -2,9 +2,15 @@
 
 namespace Continuum\Injection;
 
-/** Shared HTTP, authentication, and response handling for REST transports. */
+use Enchilada\Tortilla\HttpClient;
+
+/**
+ * Harness-specific REST behavior over the vendored Tortilla HTTP client.
+ * URL construction, cURL execution, response decoding, and transport errors
+ * stay in Enchilada/Extras; this class only handles auth and API contracts.
+ */
 abstract class RestTransport implements InjectionTransportInterface {
-    protected HttpClientInterface $http;
+    protected HttpClient $http;
 
     /**
      * @param array $auth scheme (none|basic|bearer|header), credential_file,
@@ -13,15 +19,47 @@ abstract class RestTransport implements InjectionTransportInterface {
     public function __construct(
         string $baseUrl,
         protected array $auth = [],
-        int $timeout = 5,
+        protected int $timeout = 5,
         ?string $caFile = null,
-        ?HttpClientInterface $http = null,
+        ?HttpClient $http = null,
     ) {
-        $this->http = $http ?? new CurlHttpClient($baseUrl, $timeout, $caFile);
+        $parts = parse_url($baseUrl);
+        if ($parts === false || !in_array($parts['scheme'] ?? '', ['http', 'https'], true)
+            || !isset($parts['host']) || isset($parts['user']) || isset($parts['pass'])
+            || isset($parts['query']) || isset($parts['fragment'])) {
+            throw new \InvalidArgumentException('injection base_url must be an http(s) URL without credentials, query, or fragment');
+        }
+        if ($timeout < 1 || $timeout > 60) {
+            throw new \InvalidArgumentException('injection timeout must be between 1 and 60 seconds');
+        }
+        if ($http === null) {
+            $multi = new \EnchiladaMultiHTTP(rtrim($baseUrl, '/'));
+            $multi->setTimeout($timeout);
+            if ($caFile !== null && $caFile !== '') {
+                if (!is_readable($caFile)) {
+                    throw new \InvalidArgumentException('injection ca_file is not readable');
+                }
+                $multi->setCaCert($caFile);
+            }
+            // No EventLoop is injected: Apache/mod_php and other stateless
+            // request workers use Tortilla's blocking perform() path.
+            $http = new HttpClient($multi);
+        }
+        $this->http = $http;
     }
 
     protected function request(string $method, string $path, ?array $payload = null): array {
-        return $this->http->request($method, $path, $payload, $this->headers());
+        try {
+            $body = $this->http->call(ltrim($path, '/'), $payload, $method, $this->headers(), $this->timeout, 'json');
+        } catch (\Exception $e) {
+            throw new TransportException('HTTP request failed: ' . $e->getMessage(), 0, $e);
+        }
+        $status = $this->http->getHttpCode();
+        if ($status === 0) {
+            $error = $this->http->getLastCurlError();
+            throw new TransportException('HTTP transport error' . ($error !== '' ? ': ' . $error : ''));
+        }
+        return ['status' => $status, 'body' => $body];
     }
 
     /** @return array<int,string> */

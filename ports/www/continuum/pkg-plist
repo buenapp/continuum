@@ -30,8 +30,6 @@
 %%WWWDIR%%/classes/Continuum/Bridge/RankingProviderInterface.class.php
 %%WWWDIR%%/classes/Continuum/Bridge/XmppBridgeClient.class.php
 %%WWWDIR%%/classes/Continuum/Bridge/XmppBridgeInterface.class.php
-%%WWWDIR%%/classes/Continuum/Injection/CurlHttpClient.class.php
-%%WWWDIR%%/classes/Continuum/Injection/HttpClientInterface.class.php
 %%WWWDIR%%/classes/Continuum/Injection/InjectionManager.class.php
 %%WWWDIR%%/classes/Continuum/Injection/InjectionTransportInterface.class.php
 %%WWWDIR%%/classes/Continuum/Injection/OpenCodeTransport.class.php
@@ -60,8 +58,10 @@
 %%WWWDIR%%/libraries/Enchilada/Tortilla/Oauth3LOClient.php
 %%WWWDIR%%/libraries/Enchilada/Tortilla/RequestEra.php
 %%WWWDIR%%/libraries/Enchilada/Tortilla/StdioTransport.php
+%%WWWDIR%%/libraries/EnchiladaCurl/EnchiladaCurl.class.php
+%%WWWDIR%%/libraries/EnchiladaMultiHTTP/EnchiladaMultiHTTP.class.php
+%%WWWDIR%%/libraries/EnchiladaWorkerHTTP/EnchiladaWorkerHTTP.class.php
 %%WWWDIR%%/libraries/EnchiladaHTTP/EnchiladaHTTP.class.php
-%%WWWDIR%%/libraries/EnchiladaHTTP/EnchiladaMultiHTTP.class.php
 %%WWWDIR%%/libraries/EnchiladaMCP/ElicitationRequired.class.php
 %%WWWDIR%%/libraries/EnchiladaMCP/InstanceRegistry.class.php
 %%WWWDIR%%/libraries/EnchiladaMCP/Logger.class.php
