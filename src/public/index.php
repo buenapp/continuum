@@ -174,7 +174,7 @@ $server->register(new LockTools($storage));
 $server->register(new ContextTools($storage, $ranker));
 $server->register(new AgentTools($storage));
 $signKeyFile = trim($SETTINGS?->getString('identity', 'sign_key_file', '') ?? '');
-$injection = InjectionManager::fromSettings($SETTINGS);
+$injection = InjectionManager::fromSettings($SETTINGS, $storage);
 $server->register(new MessageTools($storage, $xmppBridge, $xmppDomain, $signKeyFile !== '' ? $signKeyFile : null, $injection));
 $server->register(new EventTools($storage));
 $server->register(new StatusTools($storage));

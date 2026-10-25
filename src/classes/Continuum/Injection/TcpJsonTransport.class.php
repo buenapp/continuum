@@ -6,8 +6,9 @@ namespace Continuum\Injection;
  * One-request-per-connection JSON-lines transport for custom agents.
  *
  * Requests and responses are one JSON object terminated by LF. The response
- * to liveness is {state: running|idle|unreachable}; injection and interrupt
- * responses must explicitly say {accepted: true} (or ok/success: true).
+ * to liveness is {state: running|idle|unreachable}; the single inject
+ * response must explicitly say {accepted: true} (or ok/success: true).
+ * Interrupt is a preemption mode inside inject, never a separate operation.
  * This is a request-scoped client, not a listener or an event loop.
  */
 class TcpJsonTransport implements InjectionTransportInterface {
@@ -42,8 +43,8 @@ class TcpJsonTransport implements InjectionTransportInterface {
 
     public function transportName(): string { return 'tcp-json'; }
 
-    public function liveness(string $sessionId): string {
-        $response = $this->roundTrip(['op' => 'liveness', 'session' => $sessionId]);
+    public function liveness(string $sessionId, ?float $deadline = null): string {
+        $response = $this->roundTrip(['op' => 'liveness', 'session' => $sessionId], $deadline);
         if (($response['reachable'] ?? true) === false) { return self::UNREACHABLE; }
         $state = $response['state'] ?? $response['status'] ?? null;
         if (!is_string($state)) {
@@ -53,32 +54,30 @@ class TcpJsonTransport implements InjectionTransportInterface {
         if (in_array($state, ['running', 'busy', 'working', 'active', 'processing'], true)) {
             return self::RUNNING;
         }
-        if (in_array($state, ['idle', 'inactive', 'completed', 'stopped', 'paused'], true)) {
+        if (in_array($state, ['idle', 'inactive', 'completed', 'stopped', 'paused', 'finished', 'error', 'stuck'], true)) {
             return self::IDLE;
         }
-        if (in_array($state, ['unreachable', 'offline', 'not_found', 'missing'], true)) {
+        if (in_array($state, ['unreachable', 'offline', 'not_found', 'missing', 'waiting_for_confirmation', 'deleting'], true)) {
             return self::UNREACHABLE;
         }
         throw new TransportException("tcp-json returned an unknown session state '{$state}'");
     }
 
-    public function inject(string $sessionId, array $envelope, string $preemption, string $liveness): array {
-        if ($preemption === 'interrupt' && $liveness === self::RUNNING) {
-            $this->accepted($this->roundTrip([
-                'op' => 'interrupt',
-                'session' => $sessionId,
-                'id' => $envelope['id'] ?? null,
-            ]));
-        }
+    public function inject(string $sessionId, array $envelope, string $preemption, string $liveness, ?float $deadline = null): array {
+        // One atomic operation: the receiver verifies the full envelope
+        // before it performs cancel-and-deliver in its own turn machinery.
         $response = $this->roundTrip([
             'op' => 'inject',
             'session' => $sessionId,
             'preemption' => $preemption,
             'id' => $envelope['id'] ?? null,
             'envelope' => $envelope,
-        ]);
+        ], $deadline);
         $this->accepted($response);
-        return ['remote' => $response['id'] ?? null];
+        return [
+            'remote' => $response['id'] ?? null,
+            'interrupted' => (bool)($response['interrupted'] ?? false),
+        ];
     }
 
     private function accepted(array $response): void {
@@ -87,18 +86,18 @@ class TcpJsonTransport implements InjectionTransportInterface {
         }
     }
 
-    private function roundTrip(array $request): array {
+    private function roundTrip(array $request, ?float $deadline = null): array {
         if ($this->connector !== null) {
-            $response = ($this->connector)($request);
+            $response = ($this->connector)($request, $deadline);
             if (!is_array($response)) {
                 throw new TransportException('tcp-json connector returned a non-object response');
             }
             return $response;
         }
-        return $this->socketRoundTrip($request);
+        return $this->socketRoundTrip($request, $deadline);
     }
 
-    private function socketRoundTrip(array $request): array {
+    private function socketRoundTrip(array $request, ?float $deadline = null): array {
         $contextOptions = [];
         if ($this->scheme === 'tls') {
             $contextOptions['ssl'] = [
@@ -116,7 +115,7 @@ class TcpJsonTransport implements InjectionTransportInterface {
             $remote,
             $errno,
             $error,
-            $this->timeout,
+            $this->remainingTimeout($deadline),
             STREAM_CLIENT_CONNECT,
             stream_context_create($contextOptions)
         );
@@ -124,7 +123,7 @@ class TcpJsonTransport implements InjectionTransportInterface {
             throw new TransportException("tcp-json connection failed ({$errno})");
         }
         try {
-            stream_set_timeout($stream, $this->timeout);
+            stream_set_timeout($stream, $this->remainingTimeout($deadline));
             $payload = json_encode($request, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR) . "\n";
             $offset = 0;
             $length = strlen($payload);
@@ -137,6 +136,7 @@ class TcpJsonTransport implements InjectionTransportInterface {
             }
             $response = '';
             while (!str_ends_with($response, "\n")) {
+                stream_set_timeout($stream, $this->remainingTimeout($deadline));
                 $chunk = fgets($stream, 8192);
                 if ($chunk === false || $chunk === '') {
                     $meta = stream_get_meta_data($stream);
@@ -159,5 +159,14 @@ class TcpJsonTransport implements InjectionTransportInterface {
         } finally {
             fclose($stream);
         }
+    }
+
+    private function remainingTimeout(?float $deadline): int {
+        if ($deadline === null) { return $this->timeout; }
+        $remaining = $deadline - microtime(true);
+        if ($remaining <= 0) {
+            throw new TransportException('injection deadline exceeded');
+        }
+        return min($this->timeout, max(1, (int)ceil($remaining)));
     }
 }

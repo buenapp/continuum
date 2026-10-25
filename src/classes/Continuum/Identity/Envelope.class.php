@@ -17,7 +17,7 @@ class Envelope {
 
     /** v1 covered fields. Optional keys participate only when present. */
     public const REQUIRED = ['body', 'from', 'id', 'session', 'to', 'ts'];
-    public const OPTIONAL = ['attest', 'cert', 'epoch', 'expires', 'kind', 'priority', 'replyTo', 'sig', 'task', 'topic'];
+    public const OPTIONAL = ['attest', 'cert', 'epoch', 'expires', 'kind', 'preemption', 'priority', 'replyTo', 'sig', 'task', 'topic'];
 
     /** Canonical JSON: recursive ksort, no whitespace, UTF-8, unescaped slashes/unicode. */
     public static function canonical(array $fields): string {

@@ -74,22 +74,39 @@ class FakeHeliofaneBridge extends \Continuum\Bridge\HeliofaneMcpBridge {
     }
 }
 
+/** Responses for a first idempotent inbox insert (WATCH/LRANGE/MULTI/DEL/RPUSH/EXEC). */
+function idempotentPushResponses(array $existing = []): array {
+    return [
+        'OK',
+        array_map(fn($entry) => is_string($entry) ? $entry : json_encode($entry), $existing),
+        'OK', 'QUEUED', 'QUEUED', [1],
+    ];
+}
+
+/** Responses for an idempotent insert which finds an existing envelope id. */
+function idempotentDuplicateResponses(array $entry): array {
+    return ['OK', [is_string($entry) ? $entry : json_encode($entry)], 'OK'];
+}
+
 /** Scripted live-delivery transport; no network or storage involved. */
 class FakeInjectionTransport implements \Continuum\Injection\InjectionTransportInterface {
     /** @var array<int,array> */ public array $calls = [];
+    /** @var array<int,float|null> */ public array $deadlines = [];
     public string $state = self::IDLE;
     public ?string $fail = null;
     public array $ack = ['accepted' => true];
     public ?\Closure $onCall = null;
     public function __construct(private string $name = 'fake') {}
     public function transportName(): string { return $this->name; }
-    public function liveness(string $sessionId): string {
+    public function liveness(string $sessionId, ?float $deadline = null): string {
+        $this->deadlines[] = $deadline;
         $this->calls[] = ['op' => 'liveness', 'session' => $sessionId];
         if ($this->onCall !== null) { ($this->onCall)('liveness'); }
         if ($this->fail === 'liveness') { throw new \Continuum\Injection\TransportException('liveness failed'); }
         return $this->state;
     }
-    public function inject(string $sessionId, array $envelope, string $preemption, string $liveness): array {
+    public function inject(string $sessionId, array $envelope, string $preemption, string $liveness, ?float $deadline = null): array {
+        $this->deadlines[] = $deadline;
         $this->calls[] = ['op' => 'inject', 'session' => $sessionId, 'envelope' => $envelope,
             'preemption' => $preemption, 'liveness' => $liveness];
         if ($this->onCall !== null) { ($this->onCall)('inject'); }

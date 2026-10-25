@@ -9,9 +9,10 @@ use Continuum\Storage\ContinuumStorage;
  *
  * The sidecar (a Zig daemon holding the always-on c2s streams) POSTs one
  * JSON document per received message stanza to POST /mcp/xmpp-inbound,
- * authenticated with the bridge's own agent key. We map it onto the normal
- * inbox path (envelope + audit log) so inbox semantics, leases and the
- * event log stay single-sourced with message_send.
+ * authenticated with the bridge's own agent key. We map it onto the
+ * idempotent inbox path (envelope + audit log) so a durable copy written by
+ * message_send and a later XMPP copy share one ID, and duplicate stanzas do
+ * not create duplicate inbox entries.
  *
  * Payload:
  *   agent    string   target agent identity (inbox owner)
@@ -21,7 +22,7 @@ use Continuum\Storage\ContinuumStorage;
  *   thread   ?string  XEP-0201 <thread/>; becomes replyTo
  *   stanza_id ?string wire id for correlation
  *   sonya    ?object  urn:sonya:message:0 fields: kind, session, task,
- *                     priority, expires, epoch, sig, cert, attest
+ *                     priority, expires, epoch, sig, cert, attest, preemption
  *
  * Authorization: the calling agent key must equal [xmpp] bridge_agent;
  * a stanza without a configured bridge is rejected, and issue #3 stays
@@ -47,8 +48,12 @@ class XmppInbound {
         }
         $sonya = (is_array($payload['sonya'] ?? null)) ? $payload['sonya'] : [];
 
+        $providedId = $sonya['id'] ?? $payload['stanza_id'] ?? null;
+        $envelopeId = is_string($providedId) && preg_match('/^M-[0-9A-F]{8}$/i', $providedId)
+            ? strtoupper($providedId)
+            : 'M-' . strtoupper(bin2hex(random_bytes(4)));
         $envelope = [
-            'id' => 'M-' . strtoupper(bin2hex(random_bytes(4))),
+            'id' => $envelopeId,
             'from' => "xmpp:{$from}",
             'body' => $body,
             'ts' => gmdate('c'),
@@ -57,17 +62,19 @@ class XmppInbound {
         if (is_string($payload['topic'] ?? null)) { $envelope['topic'] = $payload['topic']; }
         if (is_string($payload['thread'] ?? null)) { $envelope['replyTo'] = $payload['thread']; }
         if (is_string($payload['stanza_id'] ?? null)) { $envelope['stanza_id'] = $payload['stanza_id']; }
-        foreach (['kind', 'session', 'task', 'priority', 'expires', 'epoch', 'sig', 'cert', 'attest'] as $f) {
+        foreach (['kind', 'session', 'task', 'priority', 'expires', 'epoch', 'sig', 'cert', 'attest', 'preemption'] as $f) {
             if (is_string($sonya[$f] ?? null)) { $envelope[$f] = $sonya[$f]; }
         }
 
-        $depth = $this->storage->inboxPush($target, $envelope);
+        $write = $this->storage->inboxPushOnce($target, $envelope);
+        $duplicate = !$write['inserted'];
         $this->storage->appendLog($callerAgent, 'message_xmpp_inbound', [
             'id' => $envelope['id'], 'to' => $target, 'from' => $from,
             'session' => $envelope['session'] ?? null, 'task' => $envelope['task'] ?? null,
             'kind' => $envelope['kind'] ?? null, 'stanza_id' => $envelope['stanza_id'] ?? null,
+            'preemption' => $envelope['preemption'] ?? null, 'duplicate' => $duplicate,
             'length' => strlen($body),
         ]);
-        return [200, ['queued' => true, 'depth' => $depth, 'id' => $envelope['id'], 'to' => $target]];
+        return [200, ['queued' => true, 'depth' => $write['depth'], 'id' => $envelope['id'], 'to' => $target, 'duplicate' => $duplicate]];
     }
 }

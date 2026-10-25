@@ -39,36 +39,55 @@ Leave it unset and sends behave exactly as before. See
 
 ### Direct session injection (issue #13)
 
-No operator action is required. Without the new `preemption` argument,
-`message_send` follows the existing inbox/XMPP path unchanged.
+No operator action is required for the durable inbox itself: it is now written
+once on every send, including sends that also use XMPP or direct injection.
+This changes the old no-local-copy XMPP behavior intentionally. XMPP inbound
+hooks use the same idempotent write and preserve a Continuum `M-XXXXXXXX`
+stanza ID, so duplicate real-time deliveries do not create duplicate inbox
+entries. Upgrade `continuum-xmpp-bridge` alongside Continuum so `preemption`,
+`sig`, `cert`, and `attest` are forwarded in both directions.
 
-To enable the additional live-session capability, add operator-owned
-`[injection.<agent>]` sections (see `docs/DIRECT-INJECTION.md` and
-`settings.ini.sample`). Configure only credential-file references, not secrets
-in the public tree. `preemption` requires a session target.
+Without the `preemption` argument, no direct transport request is made. With
+it, the argument is included in the envelope before attestation and forwarded
+in XMPP fields. It is a receiver-policy request, not a sender-imposed action:
+`steer` maps to delivery between tool rounds, `wakeup` to an allowed idle
+turn start, and `interrupt` to signed `control: cancel` followed by delivery.
+`interrupt` requires `kind=control`.
 
-XMPP remains the first-class real-time transport. When XMPP outbound is
-configured, it is sent first with unchanged routing, fan-out, archive, and
-failure behavior; direct injection is attempted afterward as a supplemental
-per-session delivery. Its result is reported independently with `pushed`,
-`injection_via`, and `injection_reason`. XMPP failures are not hidden by
-direct injection. Both paths carry the same envelope ID so consumers that
-listen to both can drop duplicates by ID.
+External signers may supply `id` and `ts` so the final signed envelope is
+known before `sig` is computed. A duplicate supplied ID returns
+`duplicate=true` and does not repeat XMPP or direct delivery.
 
-Without XMPP, a successful direct push returns `queued=false, pushed=true`
-and does not create a local inbox duplicate. If no direct transport is
-configured, the session is unreachable, or the transport fails, the send uses
-the local inbox fallback and returns `pushed=false` with `fallback_reason`.
+To enable direct delivery for a harness without native policy, add
+operator-owned `[injection.<agent>]` sections (see
+`docs/DIRECT-INJECTION.md` and `settings.ini.sample`). Configure only
+credential-file references, not secrets in the public tree. Sender allowlists
+`wakeup_from`, `steer_from`, and `interrupt_from` are deny-by-default.
+`require_signed` defaults to true for `interrupt` and false for the other
+modes; Continuum verifies control signatures or attestation before acting.
+Declare native receivers separately in `[injection] native_receivers`.
 
-The optional `[injection] enabled` and `timeout` settings control all targets.
-OpenCode `payload` must match the deployed API wire version (`text`, `nested`,
-or `parts`). ACP/stdio is not yet an implemented transport.
+Every send has `queued=true` when the durable write succeeds. `pushed`,
+`injection_via`, and `injection_reason` describe the supplemental direct
+attempt; `preemption_via` is `native`, the direct transport, or `none`.
+XMPP failures remain fatal and leave the durable inbox intact. REST interrupt
+failures report `interrupted=true` when the interrupt happened before a failed
+injection.
 
-The package now includes canonical Extras `EnchiladaCurl`,
+The optional `[injection] enabled` and `timeout` settings control all targets;
+`timeout` is now the total liveness-plus-injection budget, not a fresh budget
+per HTTP call. OpenCode `payload` must match the deployed API wire version
+(`text`, `nested`, or `parts`). ACP/stdio is not yet an implemented transport.
+
+The package includes canonical Extras `EnchiladaCurl`,
 `EnchiladaMultiHTTP`, and `EnchiladaWorkerHTTP`; the old pre-split MultiHTTP
 copy is removed. Direct-injection HTTP calls use Tortilla's existing client.
 Apache mod PHP needs no event loop or worker pool: it uses the blocking
-no-loop path, with the configured timeout bounding the outbound wait.
+no-loop path, with the configured timeout bounding the whole attempt.
+
+Plain HTTP and CA-validated HTTPS/TLS are supported for this change. DANE
+TLSA-first validation is a separate future Extras integration (task
+`T-78EF8F46`), not a Continuum-specific implementation.
 
 ## 0.4.1 (messaging hardening + strict-client schema fix)
 

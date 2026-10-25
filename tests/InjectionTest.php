@@ -38,6 +38,16 @@ class InjectionTest extends TestCase {
         return ['status' => $status, 'body' => $body];
     }
 
+    private function target(FakeInjectionTransport $transport, array $extra = []): array {
+        return array_merge([
+            'transport' => $transport,
+            'require_signed' => false,
+            'wakeup_from' => ['test-agent'],
+            'steer_from' => ['test-agent'],
+            'interrupt_from' => ['test-agent'],
+        ], $extra);
+    }
+
     public function testOpenHandsInjectsBodyAndLosslessEnvelope(): void {
         $http = new FakeInjectionHttpClient([
             $this->ok(['execution_status' => 'idle']),
@@ -65,6 +75,41 @@ class InjectionTest extends TestCase {
         $this->assertSame('/api/conversations/c1/interrupt', $http->calls[0]['path']);
         $this->assertSame('/api/conversations/c1/events', $http->calls[1]['path']);
         $this->assertTrue($http->calls[1]['payload']['run']);
+    }
+
+    public function testOpenHandsMapsTerminalAndBlockedStates(): void {
+        foreach (['finished', 'error', 'stuck', 'paused'] as $state) {
+            $http = new FakeInjectionHttpClient([$this->ok(['execution_status' => $state])]);
+            $transport = new OpenHandsTransport('http://localhost', http: $http);
+            $this->assertSame(InjectionTransportInterface::IDLE, $transport->liveness('c1'), $state);
+        }
+        foreach (['waiting_for_confirmation', 'deleting'] as $state) {
+            $http = new FakeInjectionHttpClient([$this->ok(['execution_status' => $state])]);
+            $transport = new OpenHandsTransport('http://localhost', http: $http);
+            $this->assertSame(InjectionTransportInterface::UNREACHABLE, $transport->liveness('c1'), $state);
+        }
+    }
+
+    public function testRestInterruptFailureReportsInterruptedState(): void {
+        $http = new FakeInjectionHttpClient([
+            $this->ok(),
+            $this->ok(['error' => 'failed'], 500),
+        ]);
+        $transport = new OpenHandsTransport('http://localhost', http: $http);
+        try {
+            $transport->inject('c1', ['id' => 'M-1', 'body' => 'stop'], 'interrupt', InjectionTransportInterface::RUNNING);
+            $this->fail('expected the injection failure');
+        } catch (TransportException $e) {
+            $this->assertTrue($e->context()['interrupted'] ?? false);
+        }
+    }
+
+    public function testExpiredDeadlineStopsBeforeAnyHttpCall(): void {
+        $http = new FakeInjectionHttpClient([]);
+        $transport = new OpenHandsTransport('http://localhost', http: $http);
+        $this->expectException(TransportException::class);
+        $this->expectExceptionMessageMatches('/deadline/');
+        $transport->liveness('c1', microtime(true) - 1);
     }
 
     public function testOpenHandsSteerDoesNotResume(): void {
@@ -165,7 +210,7 @@ class InjectionTest extends TestCase {
 
     public function testTcpJsonCarriesPreemptionAndWholeEnvelope(): void {
         $requests = [];
-        $transport = new TcpJsonTransport('localhost', 4444, connector: function (array $request) use (&$requests): array {
+        $transport = new TcpJsonTransport('localhost', 4444, connector: function (array $request, ?float $deadline = null) use (&$requests): array {
             $requests[] = $request;
             return $request['op'] === 'liveness' ? ['state' => 'running'] : ['accepted' => true, 'id' => 'remote-1'];
         });
@@ -173,9 +218,9 @@ class InjectionTest extends TestCase {
         $envelope = ['id' => 'M-1', 'body' => 'hello', 'cert' => '{"x":1}'];
         $result = $transport->inject('s1', $envelope, 'interrupt', InjectionTransportInterface::RUNNING);
         $this->assertSame('remote-1', $result['remote']);
-        $this->assertSame(['liveness', 'interrupt', 'inject'], array_column($requests, 'op'));
-        $this->assertSame($envelope, $requests[2]['envelope']);
-        $this->assertSame('interrupt', $requests[2]['preemption']);
+        $this->assertSame(['liveness', 'inject'], array_column($requests, 'op'));
+        $this->assertSame($envelope, $requests[1]['envelope']);
+        $this->assertSame('interrupt', $requests[1]['preemption']);
     }
 
     public function testTcpJsonRequiresExplicitAcceptance(): void {
@@ -187,13 +232,13 @@ class InjectionTest extends TestCase {
     public function testManagerMapsSessionAndFallsBackWithoutThrowing(): void {
         $transport = new FakeInjectionTransport('test-transport');
         $manager = new InjectionManager([
-            'bob' => ['transport' => $transport, 'session_resolution' => 'map', 'session_map' => ['logical' => 'harness']],
+            'bob' => $this->target($transport, ['session_resolution' => 'map', 'session_map' => ['logical' => 'harness']]),
         ]);
-        $result = $manager->deliver('bob', 'logical', ['id' => 'M-1', 'body' => 'hello'], 'wakeup');
+        $result = $manager->deliver('bob', 'logical', ['id' => 'M-1', 'from' => 'test-agent', 'body' => 'hello'], 'wakeup');
         $this->assertTrue($result['pushed']);
         $this->assertSame('harness', $transport->calls[0]['session']);
         $this->assertSame('harness', $transport->calls[1]['session']);
-        $missing = $manager->deliver('bob', 'other', ['id' => 'M-2', 'body' => 'hello'], 'wakeup');
+        $missing = $manager->deliver('bob', 'other', ['id' => 'M-2', 'from' => 'test-agent', 'body' => 'hello'], 'wakeup');
         $this->assertFalse($missing['pushed']);
         $this->assertStringContainsString('no harness session mapping', $missing['reason']);
         $unconfigured = $manager->deliver('nobody', 's', [], 'wakeup');
@@ -204,11 +249,23 @@ class InjectionTest extends TestCase {
     public function testManagerSkipsInjectionWhenSessionUnreachable(): void {
         $transport = new FakeInjectionTransport();
         $transport->state = InjectionTransportInterface::UNREACHABLE;
-        $manager = new InjectionManager(['bob' => ['transport' => $transport]]);
-        $result = $manager->deliver('bob', 's', ['id' => 'M-1'], 'interrupt');
+        $manager = new InjectionManager(['bob' => $this->target($transport)]);
+        $result = $manager->deliver('bob', 's', ['id' => 'M-1', 'from' => 'test-agent', 'kind' => 'control'], 'interrupt');
         $this->assertFalse($result['pushed']);
         $this->assertSame(InjectionTransportInterface::UNREACHABLE, $result['liveness']);
         $this->assertCount(1, $transport->calls);
+    }
+
+    public function testManagerSharesOneDeadlineAcrossLivenessAndInjection(): void {
+        $transport = new FakeInjectionTransport();
+        $manager = new InjectionManager(['bob' => $this->target($transport, ['timeout' => 5])]);
+        $start = microtime(true);
+        $result = $manager->deliver('bob', 's', ['id' => 'M-1', 'from' => 'test-agent', 'body' => 'hello'], 'wakeup');
+        $this->assertTrue($result['pushed']);
+        $this->assertCount(2, $transport->deadlines);
+        $this->assertSame($transport->deadlines[0], $transport->deadlines[1]);
+        $this->assertGreaterThanOrEqual($start + 4.9, $transport->deadlines[0]);
+        $this->assertLessThanOrEqual($start + 5.1, $transport->deadlines[0]);
     }
 
     public function testSettingsParseTargetsAndNeverRequireNetwork(): void {
@@ -217,6 +274,7 @@ class InjectionTest extends TestCase {
 [injection]
 enabled = true
 timeout = 7
+native_receivers = "sonya"
 [injection.opencode]
 transport = "opencode"
 base_url = "http://127.0.0.1:4555"
@@ -225,6 +283,10 @@ credential_file = "/var/db/continuum/opencode.password"
 payload = "text"
 session_resolution = "map"
 session_map = '{"logical":"harness"}'
+wakeup_from = "opencode,devin"
+steer_from = "opencode"
+interrupt_from = ""
+require_signed = false
 [injection.quiet]
 transport = "null"
 INI;
@@ -236,7 +298,26 @@ INI;
             $this->assertArrayHasKey('opencode', $targets);
             $this->assertInstanceOf(OpenCodeTransport::class, $targets['opencode']['transport']);
             $this->assertSame('map', $targets['opencode']['session_resolution']);
+            $this->assertSame(['opencode', 'devin'], $targets['opencode']['wakeup_from']);
+            $this->assertSame(['opencode'], $targets['opencode']['steer_from']);
+            $this->assertSame([], $targets['opencode']['interrupt_from']);
+            $this->assertFalse($targets['opencode']['require_signed']);
+            $this->assertTrue($manager->nativePreemption('sonya'));
             $this->assertArrayNotHasKey('quiet', $targets);
+        } finally {
+            @unlink($file);
+        }
+    }
+
+    public function testDisabledDirectTargetsKeepNativePreemptionDeclaration(): void {
+        $file = tempnam(sys_get_temp_dir(), 'continuum-injection-');
+        file_put_contents($file, "[injection]\nenabled = false\nnative_receivers = \"sonya\"\n");
+        try {
+            $manager = InjectionManager::fromSettings(IniConfig::load($file));
+            $this->assertTrue($manager->nativePreemption('sonya'));
+            $result = $manager->deliver('sonya', 's', ['id' => 'M-1', 'from' => 'test-agent'], 'wakeup');
+            $this->assertFalse($result['pushed']);
+            $this->assertSame('native', $result['preemption_via']);
         } finally {
             @unlink($file);
         }

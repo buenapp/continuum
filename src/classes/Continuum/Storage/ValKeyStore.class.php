@@ -333,6 +333,27 @@ class ValKeyStore {
         return (int)$this->client->command('RPUSH', self::NS . 'inbox:' . $agentId, json_encode($message));
     }
 
+    /** Insert once by envelope id; returns ['depth' => int, 'inserted' => bool]. */
+    public function inboxPushOnce(string $agentId, array $message): array {
+        $id = $message['id'] ?? null;
+        if (!is_string($id) || $id === '') {
+            return ['depth' => $this->inboxPush($agentId, $message), 'inserted' => true];
+        }
+        $result = $this->inboxRewrite($agentId, function (array $entries) use ($message, $id) {
+            foreach ($entries as $entry) {
+                if (($entry['id'] ?? null) === $id) {
+                    return [$entries, ['depth' => count($entries), 'inserted' => false]];
+                }
+            }
+            $kept = array_merge($entries, [$message]);
+            return [$kept, ['depth' => count($kept), 'inserted' => true]];
+        });
+        if ($result === null) {
+            throw new \RuntimeException("inbox for {$agentId} changed concurrently; retry the push");
+        }
+        return $result;
+    }
+
     /** Drain all pending inbox messages for an agent. */
     public function inboxDrain(string $agentId): array {
         $key = self::NS . 'inbox:' . $agentId;

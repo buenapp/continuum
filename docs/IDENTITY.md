@@ -72,6 +72,7 @@ this flag does not change emitted bytes.
 | `expires` | when present | ISO-8601 message expiry |
 | `kind` | when present | notice, context, directive, control |
 | `priority` | when present | normal, urgent |
+| `preemption` | when present | receiver-policy request: wakeup, steer, interrupt; covered by `sig` and `attest` |
 | `replyTo` | when present | id of the message answered |
 | `task` | when present | task id riding as reference or target |
 | `topic` | when present | free-form topic |
@@ -88,18 +89,21 @@ sessions are signed as the empty string. Storage-only fields
 
 ## 5. Carrier fields
 
-`sig`, `cert` and `attest` are optional opaque base64 strings at the
-MCP boundary: `message_send` shape-checks `sig`/`cert` (non-empty,
-base64-decodable) and stores them unchanged; `attest` is computed by
-Continuum (6.3). Reads (`message_lease`, `message_inbox_pull`) return
-all three unchanged, and the XMPP bridge carries them in the sonya
-payload (`urn:sonya:message:0` fields `sig`, `cert`, `attest`). Direct
+`sig` and `attest` are optional opaque base64 strings at the MCP boundary;
+`cert` is an optional JSON object string. `message_send` shape-checks these
+fields and stores them unchanged; `attest` is computed by Continuum (6.3).
+Reads (`message_lease`, `message_inbox_pull`) return all three unchanged, and
+the XMPP bridge carries them in the sonya payload
+(`urn:sonya:message:0` fields `sig`, `cert`, `attest`). Direct
 session-injection transports carry the same envelope after attestation:
 OpenCode's `text` payload uses `metadata.continuum`, its `nested` payload uses
 a marked JSON text trailer, and OpenHands and the legacy parts adapter use a
 second JSON text item; the TCP adapter carries `envelope` directly.
 Verification is always the receiver's job; Continuum never rewrites or strips
-carrier fields.
+carrier fields. `preemption` is not opaque: it is a receiver-policy request
+included in the covered field set before attestation and in the XMPP
+`sonya` field of the same name. Changing it after signing or attestation
+invalidates the envelope.
 
 ## 6. Signature schemes
 
@@ -350,13 +354,13 @@ server (e.g. OpenBao) and publishes only `pubkey` in the registry.
 
 ## 11. Send-time fields
 
-`id` and `ts` are assigned by `message_send` at send time. `sig` covers
-them as stored (6.2), so a signer that computes `sig` before the send
-call cannot produce those two values; the current send surface has no
-id/ts passthrough. End-to-end signing therefore applies to envelopes
-whose final `id`/`ts` were known to the signer; extending `message_send`
-to accept them (or a sign-and-send tool) is tracked as follow-up.
-`attest` has no such gap: Continuum signs after stamping `id`/`ts`.
+`id` and `ts` are assigned by `message_send` at send time by default. An
+external signer may instead supply `id` (`M-` plus 8 uppercase hex digits)
+and an ISO-8601 `ts` so the final envelope is known before `sig` is computed.
+The supplied values are stored exactly as given, and `preemption` is part of
+that same covered set. If the supplied ID already exists, Continuum returns
+`duplicate=true` and does not repeat XMPP or direct delivery. `attest` has no
+such gap: Continuum signs after stamping `id`/`ts`.
 
 ## 12. Proved versus declared session (v1)
 
@@ -370,7 +374,7 @@ attestation lands.
 
 - Legacy envelopes (no `sig`/`cert`/`attest`) are valid `legacy` and
   keep exactly today's schema and bytes.
-- Reads and `MESSAGE_SCHEMA` gain `sig`, `cert`, `attest` as optional
-  string properties; nothing else changes shape.
+- Reads and `MESSAGE_SCHEMA` gain `sig`, `cert`, `attest` and `preemption`
+  as optional string properties; nothing else changes shape.
 - With `[identity] sign_key_file` unset, `message_send` output and the
   stored envelope are byte-identical to before this feature.

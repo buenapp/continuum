@@ -87,15 +87,16 @@ debug = false
 ;domain = xmpp.example.com
 
 ; Direct session injection (issue #13), strictly optional and operator-owned.
-; message_send(..., preemption: wakeup|steer|interrupt) adds the target's
-; live transport after a liveness check. Without preemption, behavior is
-; unchanged. Configured XMPP is always sent first and remains the first-class
-; real-time transport; direct injection is supplemental. Without XMPP,
-; failed/unavailable injection uses the inbox with pushed=false +
-; fallback_reason. See docs/DIRECT-INJECTION.md.
+; message_send(..., preemption: wakeup|steer|interrupt) attaches a receiver
+; policy request. The durable inbox is written once on every send; configured
+; XMPP adds real-time delivery and direct injection is supplemental. See
+; docs/DIRECT-INJECTION.md for the full receiver-policy and delivery contract.
 [injection]
 ;enabled = true
+; timeout is the TOTAL liveness-plus-injection budget, not a per-HTTP-call budget.
 ;timeout = 5
+; Agent IDs whose native Sonya-style policy handles preemption (no direct target).
+;native_receivers = "sonya"
 ;
 ; OpenCode 2.0.x (top-level text payload). Use payload="nested" for the
 ; prompt:{text:...} variant, or payload="parts" for the legacy API.
@@ -113,6 +114,12 @@ debug = false
 ;session_map = "{}"
 ;ca_file = ""
 ;timeout = 5
+; Sender allowlists are deny-by-default. interrupt requires kind=control and
+; require_signed defaults to true for interrupt, false for wakeup/steer.
+;wakeup_from = "devin,opencode"
+;steer_from = "devin,opencode"
+;interrupt_from = "sonya"
+;require_signed = true
 ;
 ; OpenHands agent-server. header auth defaults to X-Session-API-Key.
 ;[injection.openhands]
@@ -126,9 +133,13 @@ debug = false
 ;session_id = ""
 ;ca_file = ""
 ;timeout = 5
+;wakeup_from = "devin,opencode"
+;steer_from = "devin,opencode"
+;interrupt_from = "sonya"
+;require_signed = true
 ;
 ; Custom JSON-lines agent. transport="tcp" (or "tcp-json"); scheme="tls"
-; enables verified TLS. See docs/DIRECT-INJECTION.md for the request contract.
+; enables verified TLS. See docs/DIRECT-INJECTION.md for the atomic contract.
 ;[injection.custom]
 ;transport = "tcp"
 ;host = "127.0.0.1"
@@ -139,6 +150,12 @@ debug = false
 ;session_map = "{}"
 ;ca_file = ""
 ;timeout = 5
+;wakeup_from = "devin,opencode"
+;steer_from = "devin,opencode"
+;interrupt_from = "sonya"
+;require_signed = true
 ;
 ; auth_scheme also accepts "none", "bearer", or "header" on REST targets.
 ; ACP/stdio is reserved for a future topology; XMPP stays under [xmpp].
+; Plain HTTP and CA-validated HTTPS/TLS are supported for this change.
+; DANE TLSA-first support is a separate future Extras integration.

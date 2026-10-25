@@ -22,15 +22,15 @@ class OpenCodeTransport extends RestTransport {
 
     public function transportName(): string { return 'opencode'; }
 
-    public function liveness(string $sessionId): string {
+    public function liveness(string $sessionId, ?float $deadline = null): string {
         $id = $this->pathId($sessionId);
-        $session = $this->expectSuccess($this->request('GET', '/api/session/' . $id), true);
+        $session = $this->expectSuccess($this->request('GET', '/api/session/' . $id, null, $deadline), true);
         if (($session['unreachable'] ?? false) === true) { return self::UNREACHABLE; }
 
         // 2.x exposes active drains as a map. A session present there is
         // running; an existing session absent from it is idle. Older servers
         // may not have /active, in which case the session record is enough.
-        $active = $this->request('GET', '/api/session/active');
+        $active = $this->request('GET', '/api/session/active', null, $deadline);
         if ((int)($active['status'] ?? 0) === 404) {
             $body = $session['body'] ?? [];
             $record = is_array($body['data'] ?? null) ? $body['data'] : $body;
@@ -54,20 +54,29 @@ class OpenCodeTransport extends RestTransport {
             return self::RUNNING;
         }
         // Some older builds return one active record rather than a map.
-        if (is_array($records) && ($records['sessionID'] ?? $records['id'] ?? null) === $sessionId) {
+        if (($records['sessionID'] ?? $records['id'] ?? null) === $sessionId) {
             return self::RUNNING;
         }
         return self::IDLE;
     }
 
-    public function inject(string $sessionId, array $envelope, string $preemption, string $liveness): array {
+    public function inject(string $sessionId, array $envelope, string $preemption, string $liveness, ?float $deadline = null): array {
         $id = $this->pathId($sessionId);
-        if ($preemption === 'interrupt' && $liveness === self::RUNNING) {
-            $this->interrupt('/api/session/' . $id . '/interrupt');
+        $interrupted = false;
+        try {
+            if ($preemption === 'interrupt' && $liveness === self::RUNNING) {
+                $this->interrupt('/api/session/' . $id . '/interrupt', $deadline);
+                $interrupted = true;
+            }
+            $path = '/api/session/' . $id . ($this->payloadStyle === 'parts' ? '/prompt_async' : '/prompt');
+            $response = $this->expectSuccess($this->request('POST', $path, $this->payload($envelope, $preemption), $deadline));
+            return ['http_status' => (int)$response['status'], 'interrupted' => $interrupted];
+        } catch (TransportException $e) {
+            if ($interrupted && !($e->context()['interrupted'] ?? false)) {
+                throw new TransportException($e->getMessage(), 0, $e, ['interrupted' => true]);
+            }
+            throw $e;
         }
-        $path = '/api/session/' . $id . ($this->payloadStyle === 'parts' ? '/prompt_async' : '/prompt');
-        $response = $this->expectSuccess($this->request('POST', $path, $this->payload($envelope, $preemption)));
-        return ['http_status' => (int)$response['status']];
     }
 
     private function payload(array $envelope, string $preemption): array {

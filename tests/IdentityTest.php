@@ -95,6 +95,23 @@ class IdentityTest extends TestCase {
         $this->assertSame(self::ATT_CANON, Envelope::canonical(Envelope::attestCovered($attest + ['to' => 'sonya'], 'openhands')));
     }
 
+    public function testPreemptionParticipatesInCanonicalAndAttestation(): void {
+        $fields = $this->signedEnvelope() + ['preemption' => 'interrupt'];
+        $this->assertSame(
+            '{"body":"ready for review","from":"devin","id":"M-1A2B3C4D","kind":"directive","preemption":"interrupt","session":"sess-42","to":"sonya","ts":"2026-10-21T02:03:04+00:00"}',
+            Envelope::canonical(Envelope::sigCovered($fields + ['to' => 'sonya']))
+        );
+
+        $envelope = [
+            'id' => 'M-PREEMPT1', 'from' => 'sonya', 'body' => 'stop', 'ts' => '2026-10-21T02:03:04+00:00',
+            'session' => 'sess-42', 'kind' => 'control', 'preemption' => 'interrupt',
+        ];
+        $envelope['attest'] = (new Attestor($this->keypair(self::ATT_SEED)))->attest($envelope + ['to' => 'bob'], 'sonya');
+        $this->assertTrue(Verify::envelope($envelope + ['to' => 'bob'], $this->registryDoc('continuum', self::ATT_PUB))['valid']);
+        $envelope['preemption'] = 'wakeup';
+        $this->assertFalse(Verify::envelope($envelope + ['to' => 'bob'], $this->registryDoc('continuum', self::ATT_PUB))['valid']);
+    }
+
     public function testCanonicalEscapingVector(): void {
         $envelope = [
             'body' => "quote \" slash / nl \n tab \t unicode \u{00E9} \u{1F680}",

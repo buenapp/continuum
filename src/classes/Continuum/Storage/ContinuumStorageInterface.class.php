@@ -32,6 +32,8 @@ interface ContinuumStorageInterface {
     public function presence(): array;   // agentId => newest beat across identity + sessions
     public function agentDirectory(): array;   // agentId => presence record with 'sessions'
     public function inboxPush(string $agentId, array $message): int;
+    /** Idempotent push by envelope id: ['depth' => int, 'inserted' => bool]. */
+    public function inboxPushOnce(string $agentId, array $message): array;
     public function inboxDrain(string $agentId): array;
     public function inboxPull(string $agentId, int $limit): array;
     public function inboxLease(string $agentId, ?string $session, int $limit, int $ttlSeconds, bool $includeUntargeted = true): array;   // ['id'=>, 'expires_at'=>, 'messages'=>]

@@ -428,7 +428,7 @@ class MessageToolsTest extends TestCase {
     }
 
     public function testSendWithTaskViaBridgeOmitsSessionForNonOwner(): void {
-        $resp = new FakeRespClient([]);
+        $resp = new FakeRespClient(idempotentPushResponses());
         $bridge = new FakeXmppBridge();
         $couch = new FakeCouch([
             ['code' => 200, 'body' => ['_rev' => '1-a', 'title' => 'T', 'owner' => 'devin', 'session' => 'sess-devin-1']],
@@ -475,7 +475,9 @@ class MessageToolsTest extends TestCase {
     }
 
     public function testSendViaBridgeBuildsJidAndSonyaFields(): void {
-        $resp = new FakeRespClient([]);
+        $resp = new FakeRespClient(array_merge([
+            ['sonya'], ['heartbeat', '1'], [], '1',
+        ], idempotentPushResponses()));
         $bridge = new FakeXmppBridge();
         $tools = new MessageTools(new ContinuumStorage(
             new ValKeyStore($resp),
@@ -501,8 +503,9 @@ class MessageToolsTest extends TestCase {
         $this->assertSame($expires, $call['fields']['expires']);
         $this->assertSame('M-11111111', $call['fields']['thread']);
         $this->assertMatchesRegularExpression('/^M-[0-9A-F]{8}$/', $call['fields']['id']);
-        // no local inbox write on the bridge path (only the audit publish)
-        $this->assertNotContains('RPUSH', array_column($resp->calls, 0));
+        // the durable inbox write happens once before the bridge send
+        $this->assertContains('RPUSH', array_column($resp->calls, 0));
+        $this->assertSame(1, $data['depth']);
     }
 
     public function testSendViaBridgeWithoutDomainFails(): void {
@@ -517,7 +520,11 @@ class MessageToolsTest extends TestCase {
     }
 
     public function testBroadcastViaBridgeReportsFailuresIndividually(): void {
-        $resp = new FakeRespClient([['test-agent', 'alice', 'bob']]); // agents
+        $resp = new FakeRespClient(array_merge(
+            [['test-agent', 'alice', 'bob']],
+            idempotentPushResponses(),
+            idempotentPushResponses()
+        )); // agents, then one idempotent inbox write per recipient
         $bridge = new FakeXmppBridge();
         $bridge->failFor = 'bob';
         $tools = new MessageTools(new ContinuumStorage(
@@ -556,7 +563,7 @@ class MessageToolsTest extends TestCase {
     public function testSendCarriesSigAndCertUnchanged(): void {
         $resp = new FakeRespClient([1]); // RPUSH
         $sig = base64_encode(random_bytes(SODIUM_CRYPTO_SIGN_BYTES));
-        $cert = base64_encode('{"stub":"cert"}');
+        $cert = '{"stub":"cert"}';
         $this->tools($resp)->message_send('bob', 'hello', null, sig: $sig, cert: $cert);
         $envelope = json_decode($resp->calls[0][2], true);
         $this->assertSame($sig, $envelope['sig']);
@@ -574,7 +581,9 @@ class MessageToolsTest extends TestCase {
             'empty sig' => ['' , null],
             'non-base64 sig' => ['not base64!!', null],
             'empty cert' => [null, ''],
-            'non-base64 cert' => [null, '***'],
+            'non-JSON cert' => [null, '***'],
+            'JSON list cert' => [null, '["not","an","object"]'],
+            'JSON scalar cert' => [null, '"scalar"'],
         ];
     }
 
@@ -622,7 +631,7 @@ class MessageToolsTest extends TestCase {
         $resp = new FakeRespClient([1]);
         $tools = new MessageTools(new ContinuumStorage(new ValKeyStore($resp), $this->couch(), new FakeArcade()), null, null, $this->signKeyFile);
         $sig = base64_encode(random_bytes(SODIUM_CRYPTO_SIGN_BYTES));
-        $cert = base64_encode('{"stub":"cert"}');
+        $cert = '{"stub":"cert"}';
         $tools->message_send('bob', 'hello', null, sig: $sig, cert: $cert);
         $envelope = json_decode($resp->calls[0][2], true);
         $key = sodium_crypto_sign_publickey($this->signKeypair);
@@ -642,11 +651,11 @@ class MessageToolsTest extends TestCase {
     }
 
     public function testSendViaBridgeCarriesSigCertAttest(): void {
-        $resp = new FakeRespClient([]);
+        $resp = new FakeRespClient(idempotentPushResponses());
         $bridge = new FakeXmppBridge();
         $tools = new MessageTools(new ContinuumStorage(new ValKeyStore($resp), $this->couch(), new FakeArcade()), $bridge, 'xmpp.example.com', $this->signKeyFile);
         $sig = base64_encode(random_bytes(SODIUM_CRYPTO_SIGN_BYTES));
-        $cert = base64_encode('{"stub":"cert"}');
+        $cert = '{"stub":"cert"}';
         $tools->message_send('sonya', 'ready', null, sig: $sig, cert: $cert);
         $fields = $bridge->calls[0]['fields'];
         $this->assertSame($sig, $fields['sig']);
@@ -668,6 +677,7 @@ class MessageToolsTest extends TestCase {
                 $this->assertIsArray($items['properties'][$field], "{$tool['name']}.{$field} must be an object subschema");
                 $this->assertSame('string', $items['properties'][$field]['type']);
             }
+            $this->assertArrayHasKey('preemption', $items['properties']);
             // a legacy envelope keeps validating against the message schema
             foreach (['id' => 'M-1', 'from' => 'a', 'body' => 'b', 'ts' => 'now'] as $key => $value) {
                 $this->assertIsString($value);

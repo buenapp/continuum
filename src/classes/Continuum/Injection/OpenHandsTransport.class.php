@@ -6,9 +6,9 @@ namespace Continuum\Injection;
 class OpenHandsTransport extends RestTransport {
     public function transportName(): string { return 'openhands'; }
 
-    public function liveness(string $sessionId): string {
+    public function liveness(string $sessionId, ?float $deadline = null): string {
         $response = $this->expectSuccess(
-            $this->request('GET', '/api/conversations/' . $this->pathId($sessionId)),
+            $this->request('GET', '/api/conversations/' . $this->pathId($sessionId), null, $deadline),
             true
         );
         if (($response['unreachable'] ?? false) === true) { return self::UNREACHABLE; }
@@ -21,29 +21,38 @@ class OpenHandsTransport extends RestTransport {
             ?? throw new TransportException('openhands session record has no execution status');
     }
 
-    public function inject(string $sessionId, array $envelope, string $preemption, string $liveness): array {
+    public function inject(string $sessionId, array $envelope, string $preemption, string $liveness, ?float $deadline = null): array {
         $id = $this->pathId($sessionId);
-        if ($preemption === 'interrupt' && $liveness === self::RUNNING) {
-            $this->interrupt('/api/conversations/' . $id . '/interrupt');
+        $interrupted = false;
+        try {
+            if ($preemption === 'interrupt' && $liveness === self::RUNNING) {
+                $this->interrupt('/api/conversations/' . $id . '/interrupt', $deadline);
+                $interrupted = true;
+            }
+            // SendMessageRequest has no metadata member. Keep the human body as
+            // the first content item and the complete envelope as a second JSON
+            // text item so sig/cert/attest and targeting fields survive unchanged.
+            $payload = [
+                'role' => 'user',
+                'content' => [
+                    ['type' => 'text', 'text' => (string)($envelope['body'] ?? '')],
+                    ['type' => 'text', 'text' => $this->envelopeJson($envelope)],
+                ],
+                'run' => $preemption !== 'steer',
+            ];
+            $response = $this->request('POST', '/api/conversations/' . $id . '/events', $payload, $deadline);
+            // The agent-server documents 429 as "message saved, run capacity
+            // full". Do not queue a second copy in Continuum in that case.
+            if ((int)($response['status'] ?? 0) === 429) {
+                return ['http_status' => 429, 'resumed' => false, 'interrupted' => $interrupted];
+            }
+            $this->expectSuccess($response);
+            return ['http_status' => (int)$response['status'], 'interrupted' => $interrupted];
+        } catch (TransportException $e) {
+            if ($interrupted && !($e->context()['interrupted'] ?? false)) {
+                throw new TransportException($e->getMessage(), 0, $e, ['interrupted' => true]);
+            }
+            throw $e;
         }
-        // SendMessageRequest has no metadata member. Keep the human body as
-        // the first content item and the complete envelope as a second JSON
-        // text item so sig/cert/attest and targeting fields survive unchanged.
-        $payload = [
-            'role' => 'user',
-            'content' => [
-                ['type' => 'text', 'text' => (string)($envelope['body'] ?? '')],
-                ['type' => 'text', 'text' => $this->envelopeJson($envelope)],
-            ],
-            'run' => $preemption !== 'steer',
-        ];
-        $response = $this->request('POST', '/api/conversations/' . $id . '/events', $payload);
-        // The agent-server documents 429 as "message saved, run capacity
-        // full". Do not queue a second copy in Continuum in that case.
-        if ((int)($response['status'] ?? 0) === 429) {
-            return ['http_status' => 429, 'resumed' => false];
-        }
-        $this->expectSuccess($response);
-        return ['http_status' => (int)$response['status']];
     }
 }

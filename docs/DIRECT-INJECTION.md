@@ -1,100 +1,136 @@
 # Direct session injection (issue #13)
 
-XMPP is Continuum's first-class real-time messaging transport. Direct
-injection is an additional, opt-in ability for harness-specific preemption of
-a live session, similar to the delivery Sonya performs natively across its
-devices and sessions. It never replaces XMPP routing, fan-out, archive, or
-audit behavior.
+XMPP is the first-class real-time transport. The local inbox is the durable,
+email-like record. Direct injection is an additional harness-specific ability
+for preempting a live session, similar to Sonya's native behavior across its
+devices and sessions. No path replaces another, and every accepted message has
+one durable inbox copy.
 
 The implementation is in `Continuum\Injection\`:
 
-- `InjectionManager` resolves operator configuration and performs liveness
-  checks before delivery.
-- `OpenHandsTransport` and `OpenCodeTransport` implement the two researched
-  REST APIs.
-- `TcpJsonTransport` implements the JSON-lines contract below for custom
+- `InjectionManager` resolves operator configuration, checks sender policy and
+  signature trust, and performs liveness-gated delivery.
+- `OpenHandsTransport` and `OpenCodeTransport` implement the researched REST
+  APIs through the vendored `Enchilada\Tortilla\HttpClient` over canonical
+  Extras `EnchiladaMultiHTTP`/`EnchiladaCurl`.
+- `TcpJsonTransport` implements one atomic JSON-lines operation for custom
   agents.
 - `InjectionTransportInterface` is the seam for a future ACP client transport.
   ACP/stdio is not implemented: Devin currently has no live external injection
   endpoint, so configuring `acp` is a configuration error rather than a false
   success.
 
-HTTP execution is delegated to the vendored `Enchilada\Tortilla\HttpClient`
-over canonical Extras `EnchiladaMultiHTTP` and `EnchiladaCurl`. Continuum's
+HTTP execution is delegated to Tortilla and Extras. Continuum's
 `RestTransport` only supplies authentication and harness-specific endpoint,
 liveness, and payload rules. Extras `REST/` is an embedded HTTP server/router,
-not a client, so it is not used for these outbound calls.
+not an outbound client, so it is not used for these calls.
 
 No agent can self-declare an arbitrary endpoint through `agent_register`.
 Capabilities are operator-owned configuration, which prevents a compromised
 agent key from turning Continuum into an SSRF client.
 
-## Sending
+## Preemption is a receiver-policy request
 
-The optional `preemption` argument accepts:
+The optional `preemption` argument accepts `wakeup`, `steer`, and `interrupt`.
+It requires `session`, either explicitly or derived from a task bound to a
+session owned by the recipient. It is attached to the envelope **before**
+Continuum adds `attest`, so the request is covered by end-to-end signatures and
+attestations. It is also forwarded in the XMPP `sonya` fields and returned on
+inbox reads.
 
-| Value | Meaning |
-|---|---|
-| `wakeup` | Inject and resume an idle session. |
-| `steer` | Add context without resuming or interrupting the current turn. |
-| `interrupt` | Interrupt a running turn, then inject and resume. An idle session is only injected and resumed. |
+The sender requests a behavior; it does not get to impose it on a native
+receiver. Sonya applies its own policy:
 
-`preemption` requires `session`, either explicitly or derived from a task
-bound to a session owned by the recipient. Without it, every send follows the
-legacy path and does not even construct a direct-transport request.
+| Mode | Sonya equivalent | Receiver gate |
+|---|---|---|
+| `steer` | Deliver between tool rounds of a running turn. `priority=urgent` without `preemption` remains the compatibility spelling. | The message kind's sender allowlist. |
+| `wakeup` | Start a turn on an idle session. | `[messages] wake` names the sender; default deny because it starts unattended work. |
+| `interrupt` | `control: cancel`, then deliver. | Control-kind allowlist and signed control trust. `kind=control` is required. |
 
-When `[xmpp]` outbound is configured, Continuum sends over XMPP exactly as it
-does without this feature. Only after the sidecar accepts that primary send
-does the manager attempt supplemental direct injection. XMPP therefore keeps
-its bare-JID fan-out to live resources, offline delivery, archive, and audit
-semantics. XMPP failures remain fatal and are not hidden by a direct attempt.
+Sonya is a native receiver over XMPP and the inbox; it is not configured as an
+`[injection.*]` target. `native_receivers` in the global `[injection]` section
+is a comma-separated list of agent IDs whose native policy should be reported
+as `preemption_via = "native"`. This is a declaration of the result path, not a
+claim that the native receiver accepted or acted on the request.
 
-Without XMPP, direct injection can be the live delivery path. If it is not
-configured, is unreachable, or fails, the existing local inbox is used and the
-result reports the fallback. A direct success in this configuration is not
-also written to the local inbox, avoiding two copies.
+For harnesses without their own policy, Continuum enforces the equivalent
+policy before making a direct request:
 
-The manager checks liveness before direct injection. A `running` or `idle`
-result permits an attempt; `unreachable` skips both interrupt and injection.
+- `wakeup_from`, `steer_from`, and `interrupt_from` in
+  `[injection.<agent>]` are comma-separated sender allowlists. Every list is
+  deny-by-default. An empty or missing list allows nobody.
+- `interrupt` requires `kind=control`.
+- `require_signed` defaults to false for `wakeup` and `steer`, and true for
+  `interrupt`. When true, Continuum verifies `sig`/`cert` or its own `attest`
+  against the identity registry before injecting. Explicitly setting it false
+  for `interrupt` is an operator escape hatch, not the recommended control
+  policy. Any carrier material presented is verified even when the mode does
+  not require signing.
+- Native receivers perform their own equivalent verification and policy
+  decisions. A failed Continuum direct-policy check does not remove the
+  durable message from the native path.
 
-`queued` and `pushed` are independent when XMPP is present: `queued` reports
-the primary XMPP/inbox result, while `pushed` reports the supplemental direct
-attempt. `via` names the primary path and `injection_via` names the successful
-supplemental transport.
+## Delivery order and results
+
+The order is deliberate:
+
+1. Write the durable inbox copy once with `inboxPushOnce`.
+2. If XMPP outbound is configured, send it with unchanged routing, bare-JID
+   fan-out, archive, and fail-loud behavior.
+3. Only then attempt the supplemental direct transport.
+
+If XMPP fails, the call still fails and no direct attempt hides that failure;
+the durable inbox copy remains. Direct injection is never used to bypass XMPP.
+A direct success is also never used to suppress the inbox.
+
+`queued` and `pushed` are independent: `queued` reports the durable inbox
+result, while `pushed` reports the supplemental direct attempt. `via` names the
+primary path (`inbox` or `xmpp-bridge`), `injection_via` names a successful
+supplemental transport, and `preemption_via` reports `native`, the transport,
+or `none` for the requested preemption path.
 
 | Result | Meaning |
 |---|---|
-| `queued=true, via=xmpp-bridge, pushed=true, injection_via=...` | XMPP accepted the message and the additional live-session injection also succeeded. |
-| `queued=true, via=xmpp-bridge, pushed=false, injection_reason=...` | XMPP accepted the message. The extra injection was unavailable or failed; this is not an XMPP fallback. |
-| `queued=false, pushed=true, via=...` | No XMPP outbound is configured; the remote harness accepted the direct delivery. |
-| `queued=true, pushed=false, via=inbox, fallback_reason=...` | No XMPP outbound is configured; direct delivery was unavailable or failed, so the local inbox was used. |
-| `pushed=true, resumed=false` | OpenHands saved the message but returned HTTP 429 because run capacity was full. `remote_status` is 429. With XMPP configured, its independent `queued=true` result is still present. |
+| `queued=true, pushed=true, via=inbox, injection_via=...` | No XMPP outbound is configured. The inbox was written and the direct transport accepted the additional delivery. |
+| `queued=true, pushed=true, via=xmpp-bridge, injection_via=...` | XMPP accepted the real-time delivery and the additional direct delivery also succeeded. |
+| `queued=true, pushed=false, via=xmpp-bridge, preemption_via=native|none, injection_reason=...` | XMPP and the inbox are intact, but the supplemental direct attempt was unavailable, denied, or failed. This is not an XMPP fallback. |
+| `queued=true, pushed=false, via=inbox, preemption_via=native|none, fallback_reason=...` | No XMPP outbound is configured; the direct attempt failed or was unavailable, but the durable inbox remains. |
+| `pushed=true, resumed=false` | OpenHands saved the message but returned HTTP 429 because run capacity was full. `remote_status` is 429 and the inbox is still present. |
 
-Direct-transport failures are caught only at the injection boundary and become
-a reported supplemental failure or, without XMPP, a reported local-inbox
-fallback. Existing XMPP failures still fail the send: configuring XMPP does
-not silently convert its delivery contract into local-only mail.
+When a REST interrupt succeeds but the following injection fails, the result
+also contains `interrupted=true` and says that the remote session was
+interrupted before the failure. TCP receivers perform cancel-and-deliver
+atomically, so this split state cannot occur there.
 
 ## Configuration
 
 Sections are named `[injection.<agent>]`, where `<agent>` is the Continuum
 identity used by `message_send`. All sections are optional. An empty or
-missing configuration means no direct transport and therefore normal queued
-delivery. `[injection] enabled = false` disables every target without
-removing its configuration.
+missing configuration means no direct transport. `[injection] enabled = false`
+disables every direct target without removing its configuration.
+
+Global keys:
+
+- `enabled`: enable direct targets, default true.
+- `native_receivers`: comma-separated native receiver agent IDs, default empty.
+- `timeout`: **total** liveness-plus-injection budget in seconds, 1 through 60,
+  default 5. The same absolute deadline is shared by all REST calls in one
+  attempt, rather than giving each call a fresh timeout.
 
 Common target keys:
 
 - `transport`: `openhands`, `opencode`, `tcp` (or `tcp-json`), `null`.
   `rest` is accepted with `driver = "openhands"` or `"opencode"`.
-- `timeout`: request/connect/read timeout in seconds, 1 through 60. The
-  global `[injection] timeout` defaults to 5; a target can override it.
+- `timeout`: target-specific total budget, overriding the global value.
 - `session_resolution`: `message` (default), `fixed`, or `map`.
   - `message` uses the Continuum `session` argument as the harness ID.
   - `fixed` uses the target's `session_id` for every message.
   - `map` looks up the Continuum session in `session_map`, a JSON object
     whose values are non-empty harness IDs. There is no raw-ID fallback for
     an unmapped session.
+- `wakeup_from`, `steer_from`, `interrupt_from`: sender allowlists described
+  above.
+- `require_signed`: signature policy described above.
 - `ca_file`: optional CA bundle for HTTPS/TLS. Certificate verification is
   on; there is no `verify_tls = false` escape hatch.
 
@@ -122,6 +158,7 @@ Example (also present, commented out, in `settings.ini.sample`):
 [injection]
 enabled = true
 timeout = 5
+native_receivers = "sonya"
 
 [injection.opencode]
 transport = "opencode"
@@ -131,6 +168,10 @@ username = "opencode"
 credential_file = "/var/db/continuum/opencode.password"
 payload = "text"
 session_resolution = "message"
+wakeup_from = "devin,opencode"
+steer_from = "devin,opencode"
+interrupt_from = "sonya"
+require_signed = true
 
 [injection.openhands]
 transport = "openhands"
@@ -140,6 +181,10 @@ auth_header = "X-Session-API-Key"
 credential_file = "/var/db/continuum/openhands.key"
 session_resolution = "map"
 session_map = '{"continuum-session-id":"openhands-conversation-id"}'
+wakeup_from = "devin,opencode"
+steer_from = "devin,opencode"
+interrupt_from = "sonya"
+require_signed = true
 ```
 
 The file paths are examples. Credentials and endpoint addresses belong to
@@ -149,31 +194,35 @@ deployment configuration, not to the public repository or issue reports.
 
 ### OpenHands
 
-- Liveness: `GET /api/conversations/{id}`. `execution_status` maps to
-  `running` or `idle`; HTTP 404 maps to `unreachable`.
+- Liveness: `GET /api/conversations/{id}`. `running` maps to running;
+  `idle`, `paused`, `finished`, `error`, and `stuck` map to idle because the
+  conversation can receive or resume work. `waiting_for_confirmation` and
+  `deleting` map to unreachable so a blocked or disappearing conversation is
+  not preempted. HTTP 404 is unreachable.
 - Inject: `POST /api/conversations/{id}/events` with `role: "user"`,
   `content`, and `run`. `run` is false only for `steer`.
 - Interrupt: `POST /api/conversations/{id}/interrupt` before injection when
-  the pre-send state is running.
+  the pre-send state is running. If the later injection fails,
+  `interrupted=true` is reported.
 
 The current `SendMessageRequest` has no metadata member. The first content
 item is the human body; the second is a JSON text item containing the complete
 Continuum envelope. A consumer that needs machine fields can parse that second
-item. This preserves `sig`, `cert`, `attest`, targeting, and the original body
-without changing their values.
+item. This preserves `preemption`, `sig`, `cert`, `attest`, targeting, and the
+original body without changing their values.
 
 ### OpenCode
 
 - Existence/liveness: `GET /api/session/{id}`, then
-  `GET /api/session/active`. A session in the active map is running; an
-  existing session absent from it is idle. If `/active` is unavailable, the
-  session record's status fields are used. If no status is exposed, liveness
-  fails closed rather than guessing: XMPP still carries the message when
-  configured, otherwise the local inbox is used. HTTP 404 for the session is
-  unreachable.
+  `GET /api/session/active`, sharing one deadline. A session in the active map
+  is running; an existing session absent from it is idle. If `/active` is
+  unavailable, the session record's status fields are used. If no status is
+  exposed, liveness fails closed rather than guessing. HTTP 404 for the
+  session is unreachable.
 - Inject: `POST /api/session/{id}/prompt` for `text` and `nested`, or
   `/prompt_async` for `parts`.
 - Interrupt: `POST /api/session/{id}/interrupt` before injection when running.
+  A later failure reports `interrupted=true`.
 
 For `text` and `nested`, `resume` is false for `steer` and true otherwise;
 `steer` also sets `delivery: "steer"`. The `text` form carries the full
@@ -187,62 +236,67 @@ A `tcp` target requires `host` and `port`; `scheme = "tcp"` is the default and
 `scheme = "tls"` enables verified TLS. Each connection carries one JSON object
 followed by LF and one JSON object response followed by LF. Connections are
 not shared between MCP requests. Responses are limited to 1 MiB and all I/O
-has the configured timeout.
+uses the shared operation deadline.
 
 Requests:
 
 ```json
 {"op":"liveness","session":"session-id"}
-{"op":"interrupt","session":"session-id","id":"M-XXXXXXXX"}
-{"op":"inject","session":"session-id","preemption":"wakeup","id":"M-XXXXXXXX","envelope":{"id":"M-XXXXXXXX","from":"alice","body":"..."}}
+{"op":"inject","session":"session-id","preemption":"interrupt","id":"M-XXXXXXXX","envelope":{"id":"M-XXXXXXXX","from":"alice","body":"...","kind":"control","preemption":"interrupt"}}
 ```
 
-Liveness answers with `{"state":"running|idle|unreachable"}`. Interrupt
-and inject must answer with an explicit `{"accepted":true}` (`ok` or
-`success` may be used instead). A rejected or malformed answer is a failed
-supplemental injection; XMPP remains delivered when configured, otherwise the
-local inbox fallback is used. The `envelope` object is passed intact,
-including identity carrier fields.
+Liveness answers with `{"state":"running|idle|unreachable"}`. Inject must
+answer with an explicit `{"accepted":true}` (`ok` or `success` may be used
+instead). There is intentionally no separate `interrupt` request: the receiver
+verifies the full envelope before it performs cancel-and-deliver in its own
+turn machinery. It may include `interrupted` in its acknowledgement. A
+rejected or malformed answer is a failed supplemental injection; the durable
+inbox remains and XMPP remains delivered when configured.
 
-## XMPP and identity
+## XMPP, inbox, and identity
 
 XMPP remains configured under `[xmpp]`, not `[injection.*]`, and remains the
 first-class real-time transport. Its sidecar API, bare-JID addressing,
 resource fan-out, offline delivery, archive, and audit behavior are unchanged.
-Direct injection is an additional per-session capability, not a routing
-replacement and not a reason to bypass an XMPP send.
+The companion `continuum-xmpp-bridge` forwards `preemption`, `sig`, `cert`,
+and `attest` in both directions; the bridge does not execute preemption.
 
-When XMPP is configured, the sidecar send happens first. The optional direct
-attempt is made afterward, so a live harness can mimic Sonya's native session
-preemption while all XMPP participants retain their normal copies. If the
-extra attempt fails, `injection_reason` records that limitation without
-turning the successful XMPP delivery into a fallback. If XMPP itself fails,
-the call fails as before and direct injection does not conceal the failure.
-
-Both paths carry the same Continuum envelope `id`. A consumer that listens to
-both XMPP and direct injection must drop duplicate deliveries by that ID,
-matching Sonya's archive and control-message rule. Configure direct injection
-for harnesses that need its preemption semantics, not as an unconsidered
-second live subscription.
+`inboxPushOnce` uses the existing optimistic-concurrency inbox rewrite to
+insert an envelope only when its ID is absent. The XMPP inbound hook preserves
+a Continuum-shaped `M-XXXXXXXX` stanza ID as the envelope ID and uses the same
+idempotent write. A duplicate hook returns `duplicate=true` and does not add a
+second copy. An external signer may supply `id` and `ts` to make the final
+signed envelope known in advance; a duplicate supplied ID returns
+`duplicate=true` and does not repeat XMPP or direct delivery. This is what lets
+the durable inbox, XMPP real-time copies, and direct preemption copies
+coexist. Receivers that listen to more than one path must also drop duplicates
+by envelope ID, matching Sonya's archive and control-message rule.
 
 Direct transports receive the envelope after Continuum has added `attest`, so
 identity fields have exactly the same values as they would on the XMPP path.
-Verification remains the receiver's responsibility as specified in
-`docs/IDENTITY.md`; Continuum does not verify or rewrite carrier material.
+`preemption` is included in the signed and attested covered sets. Verification
+remains the receiver's responsibility as specified in `docs/IDENTITY.md`;
+Continuum does not rewrite or strip carrier material.
+
+## DANE and deployment
+
+For this change, plain HTTP and HTTPS/TLS with the existing CA/system-store
+validation are supported, as explicitly accepted by the operator on
+2026-10-25. DANE TLSA-first validation is a separate shared-Extras follow-up
+(`T-78EF8F46`); no Continuum-specific partial TLSA validator is introduced.
+There is no restriction to plain HTTP and no claim that DANE is implemented
+here.
 
 ## Scale model
 
 This change adds no listener, daemon, persistent connection, or event loop.
 Continuum remains its existing request-scoped PHP application (Apache worker
 processes, or one stdio process). Each adapter is an outbound client owned by
-one request, has no shared mutable state, and uses bounded time and response
-budgets. Under Apache mod PHP no EventLoop or Fiber is injected, so Tortilla
-uses its blocking `EnchiladaCurl::perform()` path; no worker pool or
-cross-request state is required. The Apache worker waits for the outbound
-call for the configured timeout, as it does for existing storage and XMPP
-calls. `EnchiladaWorkerHTTP` is only needed for an optional reactor/stdio
-composition. The remote harness owns session queues and backpressure;
-Continuum's existing XMPP path remains the primary real-time path, with the
-local inbox as the fallback when XMPP is not configured. No new throughput or
-connection-scale claim is made, and no long-lived ACP stream is hidden in a
-PHP worker.
+one request, has no shared mutable state, and uses the shared operation
+deadline and response budgets. Under Apache mod PHP no EventLoop or Fiber is
+injected, so Tortilla uses its blocking `EnchiladaCurl::perform()` path; no
+worker pool or cross-request state is required. `EnchiladaWorkerHTTP` is only
+needed for an optional reactor/stdio composition. The remote harness owns
+session queues and backpressure; Continuum's XMPP and inbox paths remain
+independent of direct injection. No new throughput or connection-scale claim
+is made, and no long-lived ACP stream is hidden in a PHP worker.

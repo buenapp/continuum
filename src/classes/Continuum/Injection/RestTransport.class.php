@@ -48,9 +48,10 @@ abstract class RestTransport implements InjectionTransportInterface {
         $this->http = $http;
     }
 
-    protected function request(string $method, string $path, ?array $payload = null): array {
+    protected function request(string $method, string $path, ?array $payload = null, ?float $deadline = null): array {
+        $timeout = $this->remainingTimeout($deadline);
         try {
-            $body = $this->http->call(ltrim($path, '/'), $payload, $method, $this->headers(), $this->timeout, 'json');
+            $body = $this->http->call(ltrim($path, '/'), $payload, $method, $this->headers(), $timeout, 'json');
         } catch (\Exception $e) {
             throw new TransportException('HTTP request failed: ' . $e->getMessage(), 0, $e);
         }
@@ -60,6 +61,16 @@ abstract class RestTransport implements InjectionTransportInterface {
             throw new TransportException('HTTP transport error' . ($error !== '' ? ': ' . $error : ''));
         }
         return ['status' => $status, 'body' => $body];
+    }
+
+    /** Bound the whole liveness-plus-injection operation, not each HTTP call. */
+    protected function remainingTimeout(?float $deadline): int {
+        if ($deadline === null) { return $this->timeout; }
+        $remaining = $deadline - microtime(true);
+        if ($remaining <= 0) {
+            throw new TransportException('injection deadline exceeded');
+        }
+        return min($this->timeout, max(1, (int)ceil($remaining)));
     }
 
     /** @return array<int,string> */
@@ -134,10 +145,10 @@ abstract class RestTransport implements InjectionTransportInterface {
         if (in_array($value, ['running', 'busy', 'working', 'active', 'processing'], true)) {
             return self::RUNNING;
         }
-        if (in_array($value, ['idle', 'inactive', 'completed', 'stopped', 'paused'], true)) {
+        if (in_array($value, ['idle', 'inactive', 'completed', 'stopped', 'paused', 'finished', 'error', 'stuck'], true)) {
             return self::IDLE;
         }
-        if (in_array($value, ['unreachable', 'offline', 'not_found', 'missing'], true)) {
+        if (in_array($value, ['unreachable', 'offline', 'not_found', 'missing', 'waiting_for_confirmation', 'deleting'], true)) {
             return self::UNREACHABLE;
         }
         throw new TransportException($this->transportName() . ' returned an unknown session state');
@@ -157,8 +168,8 @@ abstract class RestTransport implements InjectionTransportInterface {
         return null;
     }
 
-    protected function interrupt(string $path): void {
-        $this->expectSuccess($this->request('POST', $path));
+    protected function interrupt(string $path, ?float $deadline = null): void {
+        $this->expectSuccess($this->request('POST', $path, null, $deadline));
     }
 
     /** JSON carrier used when a harness has no metadata field. */

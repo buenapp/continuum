@@ -17,14 +17,15 @@ interface InjectionTransportInterface {
     public function transportName(): string;
 
     /** @return self::RUNNING|self::IDLE|self::UNREACHABLE */
-    public function liveness(string $sessionId): string;
+    public function liveness(string $sessionId, ?float $deadline = null): string;
 
     /**
      * @param array $envelope The unchanged Continuum message envelope.
      * @param string $preemption wakeup|steer|interrupt
      * @param string $liveness The state returned by liveness().
+     * @param float|null $deadline Absolute microtime deadline shared by liveness and injection.
      * @return array Transport-specific, non-secret acknowledgement metadata.
      * @throws TransportException When the remote did not accept the message.
      */
-    public function inject(string $sessionId, array $envelope, string $preemption, string $liveness): array;
+    public function inject(string $sessionId, array $envelope, string $preemption, string $liveness, ?float $deadline = null): array;
 }

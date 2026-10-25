@@ -12,7 +12,7 @@ interface XmppBridgeInterface {
     /**
      * Queue one message on the named account's stream.
      * $fields carries the sonya payload keys (kind/session/task/expires/
-     * priority/epoch/sig/cert/attest) plus thread/topic/id. Returns the
+     * priority/epoch/sig/cert/attest/preemption) plus thread/topic/id. Returns the
      * bridge's JSON answer (['queued' => bool, 'id' => string]); throws
      * on failure.
      */

@@ -39,7 +39,7 @@ class XmppInboundTest extends TestCase {
     }
 
     public function testFilesStanzaIntoTargetInboxWithSonyaMapping(): void {
-        $resp = new FakeRespClient([7]); // RPUSH -> depth 7
+        $resp = new FakeRespClient(idempotentPushResponses());
         $hook = $this->hook($resp, [
             ['code' => 200, 'body' => ['uuids' => ['e']]],
             ['code' => 201, 'body' => []],
@@ -50,16 +50,17 @@ class XmppInboundTest extends TestCase {
             'body' => 'plan ready',
             'thread' => 'M-THREAD1',
             'stanza_id' => 'st-99',
-            'sonya' => ['kind' => 'directive', 'session' => 'sess-1', 'task' => 'T-1', 'priority' => 'urgent'],
+            'sonya' => ['kind' => 'directive', 'session' => 'sess-1', 'task' => 'T-1', 'priority' => 'urgent', 'preemption' => 'wakeup'],
         ]);
         $this->assertSame(200, $code);
         $this->assertTrue($out['queued']);
-        $this->assertSame(7, $out['depth']);
+        $this->assertSame(1, $out['depth']);
+        $this->assertFalse($out['duplicate']);
         $this->assertSame('devin', $out['to']);
 
-        $this->assertSame('RPUSH', $resp->calls[0][0]);
-        $this->assertSame('continuum:inbox:devin', $resp->calls[0][1]);
-        $env = json_decode($resp->calls[0][2], true);
+        $rpush = current(array_filter($resp->calls, fn($call) => $call[0] === 'RPUSH'));
+        $this->assertSame('continuum:inbox:devin', $rpush[1]);
+        $env = json_decode($rpush[2], true);
         $this->assertMatchesRegularExpression('/^M-[0-9A-F]{8}$/', $env['id']);
         $this->assertSame('xmpp:sonya@example.com/sess-1', $env['from']);
         $this->assertSame('plan ready', $env['body']);
@@ -70,10 +71,29 @@ class XmppInboundTest extends TestCase {
         $this->assertSame('sess-1', $env['session']);
         $this->assertSame('T-1', $env['task']);
         $this->assertSame('urgent', $env['priority']);
+        $this->assertSame('wakeup', $env['preemption']);
+    }
+
+    public function testDuplicateStanzaKeepsOneDurableCopyAndOriginalId(): void {
+        $existing = ['id' => 'M-ABCDEF12', 'from' => 'xmpp:sonya@example.com/sess-1', 'body' => 'plan ready'];
+        $resp = new FakeRespClient(idempotentDuplicateResponses($existing));
+        $hook = $this->hook($resp, [
+            ['code' => 200, 'body' => ['uuids' => ['e']]],
+            ['code' => 201, 'body' => []],
+        ]);
+        [$code, $out] = $hook->handle('bridge', [
+            'agent' => 'devin', 'from' => 'sonya@example.com/sess-1', 'body' => 'plan ready',
+            'stanza_id' => 'M-ABCDEF12', 'sonya' => ['preemption' => 'steer'],
+        ]);
+        $this->assertSame(200, $code);
+        $this->assertTrue($out['duplicate']);
+        $this->assertSame('M-ABCDEF12', $out['id']);
+        $this->assertSame(1, $out['depth']);
+        $this->assertNotContains('RPUSH', array_column($resp->calls, 0));
     }
 
     public function testSonyaIdentityFieldsRoundTripIntoTheEnvelope(): void {
-        $resp = new FakeRespClient([3]); // RPUSH -> depth 3
+        $resp = new FakeRespClient(idempotentPushResponses());
         $hook = $this->hook($resp, [
             ['code' => 200, 'body' => ['uuids' => ['e']]],
             ['code' => 201, 'body' => []],
@@ -85,7 +105,8 @@ class XmppInboundTest extends TestCase {
             'sonya' => ['sig' => 'c2ln', 'cert' => 'Y2VydA==', 'attest' => 'YXR0ZXN0'],
         ]);
         $this->assertSame(200, $code);
-        $env = json_decode($resp->calls[0][2], true);
+        $rpush = current(array_filter($resp->calls, fn($call) => $call[0] === 'RPUSH'));
+        $env = json_decode($rpush[2], true);
         $this->assertSame('c2ln', $env['sig']);
         $this->assertSame('Y2VydA==', $env['cert']);
         $this->assertSame('YXR0ZXN0', $env['attest']);

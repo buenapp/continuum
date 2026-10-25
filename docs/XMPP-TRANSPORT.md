@@ -1,9 +1,8 @@
-# XMPP Transport (issue #3) - design proposal
+# XMPP Transport (issue #3) - design and operation
 
-Status: proposal, pending operator decision. Nothing in this document is
-wired into the server yet; issue #2 (targeting + lease/ack) is the only
-messaging change currently implemented, and an XMPP-less Continuum keeps
-exactly that behavior.
+Status: the sidecar transport is implemented. XMPP is additive real-time
+messaging; the local inbox remains the durable, email-like record written
+once on every send. An XMPP-less Continuum keeps the same inbox behavior.
 
 ## Question
 
@@ -70,9 +69,11 @@ identities map to which JIDs, and the HTTP credential the sidecar
 presents on the inbound hook. The XMPP account passwords live in the
 sidecar's own config, not in Continuum's.
 
-Failure modes degrade to issue-#2 semantics: sidecar down or
-unconfigured → targeted inbox only, no data loss (sends either fail
-loud or fall back to local inbox delivery, configurable).
+Failure modes preserve the durable inbox: every send is written there once
+before XMPP is attempted. A sidecar failure fails the real-time call without
+hiding the failure, but it does not erase that copy. Without XMPP, the local
+inbox remains the normal delivery path. Supplemental direct injection is
+reported independently and never substitutes for XMPP.
 
 
 ## Architecture
@@ -96,11 +97,12 @@ loud or fall back to local inbox delivery, configurable).
   answers once the stanza entered the stream's unacked queue; XEP-0198
   acks and resume live entirely inside the sidecar.
 - **Inbound**: the sidecar posts received stanzas to a loopback-only
-  Continuum endpoint carrying the recipient agent key, which pushes the
-  envelope into the target inbox through the same code path as
-  `message_send`, so audit logging stays single-sourced.
+  Continuum endpoint carrying the recipient agent key, which performs the
+  same idempotent inbox write as `message_send`. A Continuum-shaped stanza ID
+  is preserved as the envelope ID, so an outbound local copy and a later
+  XMPP inbound copy do not become two durable messages.
 - **Optional**: no `[xmpp]` section (or an empty one) means no sidecar
-  calls; the targeted-inbox behavior from issue #2 is the whole story.
+  calls; the durable inbox remains the whole local delivery path.
 
 ## Addressing
 
@@ -129,7 +131,8 @@ PUT  /v1/send
        "sonya": { "kind": "notice|context|directive|control",
                   "session": "...", "task": "T-XXXX",
                   "expires": "ISO-8601", "priority": "normal|urgent",
-                  "epoch": "..." },          # control only
+                  "epoch": "...", "preemption": "wakeup|steer|interrupt",
+                  "sig": "...", "cert": "...", "attest": "..." },
        "thread": "parent message id" }      # maps to <thread/>
   -> { "id": "stanza id", "queued": true }
 
@@ -151,9 +154,11 @@ POST /mcp/xmpp-inbound   (Authorization: Bearer <agent key>)
 
 Stanza mapping (outbound): `<body>`, one
 `<sonya xmlns="urn:sonya:message:0" kind=... session=... task=...
-expires=... priority=... epoch=.../>`, `<thread>` for replies.
-Server-stamped stanza id replaces the local one when XEP-0359 is
-available; `id` correlation falls back to the stanza id otherwise.
+expires=... priority=... epoch=... preemption=... sig=... cert=... attest=.../>`,
+`<thread>` for replies. `preemption` is a receiver-policy request, not an
+instruction executed by the bridge. Server-stamped stanza id replaces the
+local one when XEP-0359 is available; `id` correlation falls back to the
+stanza id otherwise.
 
 ## xmppd facts (checked against source, 2026-10-01)
 

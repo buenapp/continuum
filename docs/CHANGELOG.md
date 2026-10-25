@@ -10,20 +10,23 @@ introduces them (see AGENTS.md). Version parity is enforced between
 
 - Direct session injection for `message_send`
   ([issue #13](https://pacyworld.dev/buenapp/continuum/issues/13)):
-  optional `preemption` (`wakeup`, `steer`, `interrupt`) requires a session,
-  checks harness liveness, and adds delivery through operator-configured
-  OpenHands/OpenCode REST or JSON-over-TCP transports. XMPP remains the
-  first-class real-time transport: configured XMPP is sent first with
-  unchanged routing and fan-out, and direct injection is supplemental with
-  independent `pushed`, `injection_via`, and `injection_reason` results.
-  Without XMPP, successful pushes return `queued=false, pushed=true` and skip
-  the local inbox; unavailable or failed pushes use the local inbox and
-  report `pushed=false` with `fallback_reason`. OpenHands'
-  saved-but-not-resumed HTTP 429 response is handled without duplicating the
-  message. Per-agent
-  `[injection.<agent>]` configuration supports credential-file references,
-  session-ID resolution, and explicit OpenCode wire versions; ACP remains
-  a documented future adapter. See `docs/DIRECT-INJECTION.md`.
+  `preemption` (`wakeup`, `steer`, `interrupt`) is a signed receiver-policy
+  request, not a sender-imposed action. It is included in the envelope before
+  attestation and forwarded in XMPP fields. Native receivers apply Sonya's
+  gates; direct targets use deny-by-default sender allowlists and verified
+  control trust (`interrupt` requires `kind=control`). REST and JSON-over-TCP
+  transports are available for harnesses without native policy; TCP uses one
+  atomic full-envelope inject, and REST interrupt failures report
+  `interrupted=true`. Every send writes the durable inbox once with
+  `inboxPushOnce`; XMPP inbound deduplicates by envelope ID. `queued` and
+  `pushed` are independent, and `preemption_via` reports `native`, a direct
+  transport, or `none`. OpenHands terminal states are mapped for resumable
+  wakeups, and one absolute deadline bounds the whole liveness-plus-injection
+  attempt. Per-agent `[injection.<agent>]` configuration supports
+  credential-file references, session-ID resolution, and explicit OpenCode
+  wire versions. Optional `id`/`ts` passthrough makes external signed control
+  possible; duplicate IDs return `duplicate=true` without repeating delivery.
+  ACP remains a documented future adapter. See `docs/DIRECT-INJECTION.md`.
 
 ### Changed
 
@@ -33,6 +36,9 @@ introduces them (see AGENTS.md). Version parity is enforced between
   wrappers are removed. `EnchiladaWorkerHTTP` is vendored for the optional
   reactor path, and the obsolete pre-split MultiHTTP copy is removed.
   Apache mod PHP uses Tortilla's blocking, no-loop mode.
+- Plain HTTP and CA-validated HTTPS/TLS are supported for this change.
+  DANE TLSA-first validation is intentionally a separate Extras follow-up
+  (`T-78EF8F46`), not a Continuum-specific partial validator.
 
 ## 0.5.0 (2026-10-22)
 
