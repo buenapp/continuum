@@ -1,8 +1,10 @@
 # Direct session injection (issue #13)
 
-`message_send` is pull-based by default. Direct injection is an opt-in delivery
-path for a message addressed to a live agent session. It does not replace the
-Continuum inbox, the audit log, or XMPP.
+XMPP is Continuum's first-class real-time messaging transport. Direct
+injection is an additional, opt-in ability for harness-specific preemption of
+a live session, similar to the delivery Sonya performs natively across its
+devices and sessions. It never replaces XMPP routing, fan-out, archive, or
+audit behavior.
 
 The implementation is in `Continuum\Injection\`:
 
@@ -33,23 +35,39 @@ The optional `preemption` argument accepts:
 
 `preemption` requires `session`, either explicitly or derived from a task
 bound to a session owned by the recipient. Without it, every send follows the
-legacy path and does not even construct a transport request.
+legacy path and does not even construct a direct-transport request.
 
-The manager checks liveness first. A `running` or `idle` result permits an
-injection attempt; `unreachable` skips both interrupt and injection. A direct
-success is not also written to the Continuum inbox, avoiding two copies.
+When `[xmpp]` outbound is configured, Continuum sends over XMPP exactly as it
+does without this feature. Only after the sidecar accepts that primary send
+does the manager attempt supplemental direct injection. XMPP therefore keeps
+its bare-JID fan-out to live resources, offline delivery, archive, and audit
+semantics. XMPP failures remain fatal and are not hidden by a direct attempt.
 
-The structured result distinguishes these cases:
+Without XMPP, direct injection can be the live delivery path. If it is not
+configured, is unreachable, or fails, the existing local inbox is used and the
+result reports the fallback. A direct success in this configuration is not
+also written to the local inbox, avoiding two copies.
+
+The manager checks liveness before direct injection. A `running` or `idle`
+result permits an attempt; `unreachable` skips both interrupt and injection.
+
+`queued` and `pushed` are independent when XMPP is present: `queued` reports
+the primary XMPP/inbox result, while `pushed` reports the supplemental direct
+attempt. `via` names the primary path and `injection_via` names the successful
+supplemental transport.
 
 | Result | Meaning |
 |---|---|
-| `queued=false, pushed=true` | The remote harness accepted the message. `via` names the transport and `liveness` records the pre-send state. |
-| `queued=true, pushed=false` | Direct delivery was not configured, was unreachable, or failed. The existing XMPP or local-inbox path was used. `fallback_reason` says why. |
-| `pushed=true, resumed=false` | OpenHands saved the message but returned HTTP 429 because run capacity was full. This is remote acceptance, not a Continuum fallback; no duplicate inbox copy is made. `remote_status` is 429. |
+| `queued=true, via=xmpp-bridge, pushed=true, injection_via=...` | XMPP accepted the message and the additional live-session injection also succeeded. |
+| `queued=true, via=xmpp-bridge, pushed=false, injection_reason=...` | XMPP accepted the message. The extra injection was unavailable or failed; this is not an XMPP fallback. |
+| `queued=false, pushed=true, via=...` | No XMPP outbound is configured; the remote harness accepted the direct delivery. |
+| `queued=true, pushed=false, via=inbox, fallback_reason=...` | No XMPP outbound is configured; direct delivery was unavailable or failed, so the local inbox was used. |
+| `pushed=true, resumed=false` | OpenHands saved the message but returned HTTP 429 because run capacity was full. `remote_status` is 429. With XMPP configured, its independent `queued=true` result is still present. |
 
-Transport failures are caught only at the injection boundary and become a
-reported fallback. Existing XMPP failures still fail the send: configuring
-XMPP does not silently convert its delivery contract into local-only mail.
+Direct-transport failures are caught only at the injection boundary and become
+a reported supplemental failure or, without XMPP, a reported local-inbox
+fallback. Existing XMPP failures still fail the send: configuring XMPP does
+not silently convert its delivery contract into local-only mail.
 
 ## Configuration
 
@@ -144,8 +162,9 @@ without changing their values.
   `GET /api/session/active`. A session in the active map is running; an
   existing session absent from it is idle. If `/active` is unavailable, the
   session record's status fields are used. If no status is exposed, liveness
-  fails closed to the queued fallback rather than guessing. HTTP 404 for the
-  session is unreachable.
+  fails closed rather than guessing: XMPP still carries the message when
+  configured, otherwise the local inbox is used. HTTP 404 for the session is
+  unreachable.
 - Inject: `POST /api/session/{id}/prompt` for `text` and `nested`, or
   `/prompt_async` for `parts`.
 - Interrupt: `POST /api/session/{id}/interrupt` before injection when running.
@@ -175,20 +194,34 @@ Requests:
 Liveness answers with `{"state":"running|idle|unreachable"}`. Interrupt
 and inject must answer with an explicit `{"accepted":true}` (`ok` or
 `success` may be used instead). A rejected or malformed answer is a failed
-injection and produces the normal reported fallback. The `envelope` object is
-passed intact, including identity carrier fields.
+supplemental injection; XMPP remains delivered when configured, otherwise the
+local inbox fallback is used. The `envelope` object is passed intact,
+including identity carrier fields.
 
 ## XMPP and identity
 
-XMPP remains configured under `[xmpp]`, not `[injection.*]`. It is the queued
-fallback for agents without a live transport and for failed live attempts;
-its existing sidecar API, addressing, and audit behavior are unchanged. A
-future XMPP push adapter can implement `InjectionTransportInterface` without
-changing `message_send`.
+XMPP remains configured under `[xmpp]`, not `[injection.*]`, and remains the
+first-class real-time transport. Its sidecar API, bare-JID addressing,
+resource fan-out, offline delivery, archive, and audit behavior are unchanged.
+Direct injection is an additional per-session capability, not a routing
+replacement and not a reason to bypass an XMPP send.
+
+When XMPP is configured, the sidecar send happens first. The optional direct
+attempt is made afterward, so a live harness can mimic Sonya's native session
+preemption while all XMPP participants retain their normal copies. If the
+extra attempt fails, `injection_reason` records that limitation without
+turning the successful XMPP delivery into a fallback. If XMPP itself fails,
+the call fails as before and direct injection does not conceal the failure.
+
+Both paths carry the same Continuum envelope `id`. A consumer that listens to
+both XMPP and direct injection must drop duplicate deliveries by that ID,
+matching Sonya's archive and control-message rule. Configure direct injection
+for harnesses that need its preemption semantics, not as an unconsidered
+second live subscription.
 
 Direct transports receive the envelope after Continuum has added `attest`, so
-identity fields have exactly the same values as they would on the inbox/XMPP
-path. Verification remains the receiver's responsibility as specified in
+identity fields have exactly the same values as they would on the XMPP path.
+Verification remains the receiver's responsibility as specified in
 `docs/IDENTITY.md`; Continuum does not verify or rewrite carrier material.
 
 ## Scale model
@@ -198,5 +231,7 @@ Continuum remains its existing request-scoped PHP application (Apache worker
 processes, or one stdio process). Each adapter is an outbound client owned by
 one request, has no shared mutable state, and uses bounded time and response
 budgets. The remote harness owns session queues and backpressure; Continuum's
-existing inbox remains the fallback. No new throughput or connection-scale
-claim is made, and no long-lived ACP stream is hidden in a PHP worker.
+existing XMPP path remains the primary real-time path, with the local inbox
+as the fallback when XMPP is not configured. No new throughput or
+connection-scale claim is made, and no long-lived ACP stream is hidden in a
+PHP worker.

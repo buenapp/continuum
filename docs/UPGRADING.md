@@ -42,13 +42,23 @@ Leave it unset and sends behave exactly as before. See
 No operator action is required. Without the new `preemption` argument,
 `message_send` follows the existing inbox/XMPP path unchanged.
 
-To enable live delivery, add operator-owned `[injection.<agent>]` sections
-(see `docs/DIRECT-INJECTION.md` and `settings.ini.sample`). Configure only
-credential-file references, not secrets in the public tree. `preemption`
-requires a session target; a successful push returns `pushed=true` and does
-not create an inbox duplicate. If no transport is configured, the session is
-unreachable, or the transport fails, the send uses the existing XMPP/inbox
-fallback and returns `pushed=false` with `fallback_reason`.
+To enable the additional live-session capability, add operator-owned
+`[injection.<agent>]` sections (see `docs/DIRECT-INJECTION.md` and
+`settings.ini.sample`). Configure only credential-file references, not secrets
+in the public tree. `preemption` requires a session target.
+
+XMPP remains the first-class real-time transport. When XMPP outbound is
+configured, it is sent first with unchanged routing, fan-out, archive, and
+failure behavior; direct injection is attempted afterward as a supplemental
+per-session delivery. Its result is reported independently with `pushed`,
+`injection_via`, and `injection_reason`. XMPP failures are not hidden by
+direct injection. Both paths carry the same envelope ID so consumers that
+listen to both can drop duplicates by ID.
+
+Without XMPP, a successful direct push returns `queued=false, pushed=true`
+and does not create a local inbox duplicate. If no direct transport is
+configured, the session is unreachable, or the transport fails, the send uses
+the local inbox fallback and returns `pushed=false` with `fallback_reason`.
 
 The optional `[injection] enabled` and `timeout` settings control all targets.
 OpenCode `payload` must match the deployed API wire version (`text`, `nested`,

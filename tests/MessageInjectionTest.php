@@ -12,8 +12,12 @@ use Continuum\Storage\ValKeyStore;
 
 class InjectionXmppBridge implements XmppBridgeInterface {
     public array $calls = [];
+    public bool $fail = false;
+    public ?\Closure $onSend = null;
     public function send(string $account, string $to, string $body, array $fields): array {
         $this->calls[] = ['account' => $account, 'to' => $to, 'body' => $body, 'fields' => $fields];
+        if ($this->onSend !== null) { ($this->onSend)($to); }
+        if ($this->fail) { throw new \RuntimeException('xmpp unavailable'); }
         return ['queued' => true, 'id' => $fields['id'] ?? 'M-XMPP'];
     }
     public function health(): array { return []; }
@@ -136,7 +140,7 @@ class MessageInjectionTest extends TestCase {
         $this->assertSame(InjectionTransportInterface::IDLE, $data['liveness']);
     }
 
-    public function testFallbackUsesConfiguredXmppWithoutLocalCopy(): void {
+    public function testXmppRemainsPrimaryWhenDirectUnavailable(): void {
         $resp = new FakeRespClient([
             ['bob'], ['heartbeat', '1'], [], '1',
         ]);
@@ -148,10 +152,55 @@ class MessageInjectionTest extends TestCase {
         $this->assertTrue($data['queued']);
         $this->assertFalse($data['pushed']);
         $this->assertSame('xmpp-bridge', $data['via']);
-        $this->assertSame('no direct transport configured', $data['fallback_reason']);
+        $this->assertSame('no direct transport configured', $data['injection_reason']);
+        $this->assertArrayNotHasKey('fallback_reason', $data);
         $this->assertSame('bob@xmpp.example.com', $bridge->calls[0]['to']);
         $this->assertSame('sess-1', $bridge->calls[0]['fields']['session']);
         $this->assertNotContains('RPUSH', array_column($resp->calls, 0));
+        $this->assertStringContainsString('XMPP delivery succeeded', $result->toArray()['content'][0]['text']);
+    }
+
+    public function testXmppAndDirectPushAreBothDeliveredInThatOrder(): void {
+        $resp = new FakeRespClient($this->heldSessionResponses());
+        $events = [];
+        $bridge = new InjectionXmppBridge();
+        $bridge->onSend = function () use (&$events): void { $events[] = 'xmpp'; };
+        $transport = new FakeInjectionTransport('fake-rest');
+        $transport->onCall = function (string $op) use (&$events): void { $events[] = $op; };
+        $manager = new InjectionManager(['bob' => ['transport' => $transport]]);
+        $result = $this->tools($resp, $manager, $bridge)->message_send(
+            'bob', 'hello', session: 'sess-1', preemption: 'wakeup'
+        );
+        $data = $result->getStructuredContent();
+        $this->assertTrue($data['queued'], 'XMPP acceptance remains visible');
+        $this->assertTrue($data['pushed'], 'the supplemental push also succeeded');
+        $this->assertSame('xmpp-bridge', $data['via']);
+        $this->assertSame('fake-rest', $data['injection_via']);
+        $this->assertArrayNotHasKey('fallback_reason', $data);
+        $this->assertSame(['xmpp', 'liveness', 'inject'], $events);
+        $this->assertCount(1, $bridge->calls);
+        $this->assertCount(2, $transport->calls);
+        $this->assertSame($bridge->calls[0]['fields']['id'], $transport->calls[1]['envelope']['id'], 'both transports must share the deduplication ID');
+        $this->assertNotContains('RPUSH', array_column($resp->calls, 0));
+        $this->assertStringContainsString('sent over XMPP', $result->toArray()['content'][0]['text']);
+        $this->assertStringContainsString('Supplemental direct injection delivered', $result->toArray()['content'][0]['text']);
+    }
+
+    public function testXmppFailureIsNotHiddenByDirectTransport(): void {
+        $resp = new FakeRespClient($this->heldSessionResponses());
+        $bridge = new InjectionXmppBridge();
+        $bridge->fail = true;
+        $transport = new FakeInjectionTransport();
+        $manager = new InjectionManager(['bob' => ['transport' => $transport]]);
+        try {
+            $this->tools($resp, $manager, $bridge)->message_send(
+                'bob', 'hello', session: 'sess-1', preemption: 'interrupt'
+            );
+            $this->fail('expected the XMPP failure to remain fatal');
+        } catch (\RuntimeException $e) {
+            $this->assertSame('xmpp unavailable', $e->getMessage());
+        }
+        $this->assertSame([], $transport->calls, 'direct injection must not replace or conceal XMPP failure');
     }
 
     public function testDirectPushCarriesAttestationUnchangedIntoTransport(): void {

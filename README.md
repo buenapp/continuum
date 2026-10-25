@@ -63,13 +63,14 @@ agent-level behavior.
 
 ### Direct session injection
 
-`message_send` remains queued by default. With an explicit session and
-`preemption` (`wakeup`, `steer`, or `interrupt`), an operator-configured
-OpenHands, OpenCode, or JSON-over-TCP transport can push into a live session
-after a liveness check. Failed or unavailable push attempts use the normal
-XMPP/inbox fallback and report `pushed=false` with a reason. Configuration,
-wire contracts, and identity-carrier behavior are in
-`docs/DIRECT-INJECTION.md`.
+XMPP remains the first-class real-time transport. With an explicit session
+and `preemption` (`wakeup`, `steer`, or `interrupt`), an operator-configured
+OpenHands, OpenCode, or JSON-over-TCP transport can additionally push into a
+live session after a liveness check, similar to Sonya's native session
+preemption. Configured XMPP is still sent first and keeps its normal routing
+and fan-out. Without XMPP, failed or unavailable direct delivery uses the
+inbox fallback and reports `pushed=false` with a reason. Configuration, wire
+contracts, and identity-carrier behavior are in `docs/DIRECT-INJECTION.md`.
 
 ## Terminology
 
