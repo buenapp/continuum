@@ -74,18 +74,14 @@ class FakeHeliofaneBridge extends \Continuum\Bridge\HeliofaneMcpBridge {
     }
 }
 
-/** Responses for a first idempotent inbox insert (WATCH/LRANGE/MULTI/DEL/RPUSH/EXEC). */
+/** Response for the atomic idempotent inbox EVAL (inserted, depth). */
 function idempotentPushResponses(array $existing = []): array {
-    return [
-        'OK',
-        array_map(fn($entry) => is_string($entry) ? $entry : json_encode($entry), $existing),
-        'OK', 'QUEUED', 'QUEUED', [1],
-    ];
+    return [[1, count($existing) + 1]];
 }
 
-/** Responses for an idempotent insert which finds an existing envelope id. */
+/** Response for an idempotent insert which finds an existing envelope id. */
 function idempotentDuplicateResponses(array $entry): array {
-    return ['OK', [is_string($entry) ? $entry : json_encode($entry)], 'OK'];
+    return [[0, 1]];
 }
 
 /** Scripted live-delivery transport; no network or storage involved. */

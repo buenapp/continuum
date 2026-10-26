@@ -100,7 +100,9 @@ reported independently and never substitutes for XMPP.
   Continuum endpoint carrying the recipient agent key, which performs the
   same idempotent inbox write as `message_send`. A Continuum-shaped stanza ID
   is preserved as the envelope ID, so an outbound local copy and a later
-  XMPP inbound copy do not become two durable messages.
+  XMPP inbound copy do not become two durable messages. The bridge advances
+  archive cursors only after the hook returns 2xx and retries failed POSTs
+  with backoff, so a rejected delivery remains replayable.
 - **Optional**: no `[xmpp]` section (or an empty one) means no sidecar
   calls; the durable inbox remains the whole local delivery path.
 

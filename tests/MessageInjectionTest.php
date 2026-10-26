@@ -90,7 +90,7 @@ class MessageInjectionTest extends TestCase {
         $this->assertCount(2, $transport->calls);
         $this->assertSame('hello', $transport->calls[1]['envelope']['body']);
         $this->assertSame('wakeup', $transport->calls[1]['envelope']['preemption']);
-        $this->assertContains('RPUSH', array_column($resp->calls, 0));
+        $this->assertContains('EVAL', array_column($resp->calls, 0));
         $this->assertStringContainsString('Supplemental direct injection delivered', $result->toArray()['content'][0]['text']);
     }
 
@@ -106,7 +106,7 @@ class MessageInjectionTest extends TestCase {
         $this->assertTrue($data['pushed']);
         $this->assertFalse($data['resumed']);
         $this->assertSame(429, $data['remote_status']);
-        $this->assertContains('RPUSH', array_column($resp->calls, 0));
+        $this->assertContains('EVAL', array_column($resp->calls, 0));
         $this->assertStringContainsString('could not resume', $result->toArray()['content'][0]['text']);
     }
 
@@ -135,8 +135,8 @@ class MessageInjectionTest extends TestCase {
         $this->assertSame(InjectionTransportInterface::UNREACHABLE, $data['liveness']);
         $this->assertSame('session unreachable', $data['fallback_reason']);
         $this->assertCount(1, $transport->calls, 'unreachable sessions must not be interrupted or injected');
-        $rpush = current(array_filter($resp->calls, fn($call) => $call[0] === 'RPUSH'));
-        $this->assertSame('hello', json_decode($rpush[2], true)['body']);
+        $rpush = current(array_filter($resp->calls, fn($call) => $call[0] === 'EVAL'));
+        $this->assertSame('hello', json_decode($rpush[6], true)['body']);
         $this->assertStringContainsString('Direct injection was not delivered', $result->toArray()['content'][0]['text']);
     }
 
@@ -171,7 +171,7 @@ class MessageInjectionTest extends TestCase {
         $this->assertSame('bob@xmpp.example.com', $bridge->calls[0]['to']);
         $this->assertSame('sess-1', $bridge->calls[0]['fields']['session']);
         $this->assertSame('wakeup', $bridge->calls[0]['fields']['preemption']);
-        $this->assertContains('RPUSH', array_column($resp->calls, 0));
+        $this->assertContains('EVAL', array_column($resp->calls, 0));
         $this->assertStringContainsString('XMPP delivery succeeded', $result->toArray()['content'][0]['text']);
     }
 
@@ -197,7 +197,7 @@ class MessageInjectionTest extends TestCase {
         $this->assertCount(1, $bridge->calls);
         $this->assertCount(2, $transport->calls);
         $this->assertSame($bridge->calls[0]['fields']['id'], $transport->calls[1]['envelope']['id'], 'both transports must share the deduplication ID');
-        $this->assertContains('RPUSH', array_column($resp->calls, 0));
+        $this->assertContains('EVAL', array_column($resp->calls, 0));
         $this->assertStringContainsString('sent over XMPP', $result->toArray()['content'][0]['text']);
         $this->assertStringContainsString('Supplemental direct injection delivered', $result->toArray()['content'][0]['text']);
     }
@@ -216,7 +216,7 @@ class MessageInjectionTest extends TestCase {
             $this->assertSame('xmpp unavailable', $e->getMessage());
         }
         $this->assertSame([], $transport->calls, 'direct injection must not replace or conceal XMPP failure');
-        $this->assertContains('RPUSH', array_column($resp->calls, 0), 'the durable copy is written before XMPP');
+        $this->assertContains('EVAL', array_column($resp->calls, 0), 'the durable copy is written before XMPP');
     }
 
     public function testDirectPushCarriesAttestationUnchangedIntoTransport(): void {
@@ -283,7 +283,7 @@ class MessageInjectionTest extends TestCase {
         $this->tools($resp)->message_send('bob', 'hello', session: 'sess-1', preemption: 'interrupt');
     }
 
-    public function testSignedControlInterruptIsVerifiedBeforeDirectDelivery(): void {
+    public function testAttestationAloneDoesNotAuthorizeDirectInterrupt(): void {
         $keypair = sodium_crypto_sign_keypair();
         $keyFile = tempnam(sys_get_temp_dir(), 'continuum-injection-key-');
         file_put_contents($keyFile, $keypair);
@@ -307,11 +307,9 @@ class MessageInjectionTest extends TestCase {
         try {
             $result = $tools->message_send('bob', 'stop safely', session: 'sess-1', kind: 'control', preemption: 'interrupt');
             $data = $result->getStructuredContent();
-            $this->assertTrue($data['pushed']);
-            $this->assertTrue($data['interrupted']);
-            $this->assertSame('fake-control', $data['preemption_via']);
-            $this->assertSame('interrupt', $transport->calls[1]['envelope']['preemption']);
-            $this->assertSame('control', $transport->calls[1]['envelope']['kind']);
+            $this->assertFalse($data['pushed']);
+            $this->assertSame([], $transport->calls);
+            $this->assertStringContainsString('signed control required', $data['fallback_reason']);
         } finally {
             @unlink($keyFile);
         }
@@ -368,16 +366,34 @@ class MessageInjectionTest extends TestCase {
         $this->assertSame('interrupt', $transport->calls[1]['envelope']['preemption']);
     }
 
-    public function testInvalidAttestationDoesNotAuthorizeDirectInterrupt(): void {
-        $keyFile = tempnam(sys_get_temp_dir(), 'continuum-injection-key-');
-        file_put_contents($keyFile, sodium_crypto_sign_keypair());
-        $registry = [
-            '_id' => 'continuum',
-            'pubkey' => base64_encode(sodium_crypto_sign_publickey(sodium_crypto_sign_keypair())),
-            'status' => 'active',
+    public function testCertificateWorkstreamMustMatchSender(): void {
+        $wsKeypair = sodium_crypto_sign_keypair();
+        $sessKeypair = sodium_crypto_sign_keypair();
+        $cert = [
+            'not_after' => '2126-10-25T00:00:00+00:00',
+            'session' => 'sess-1',
+            'session_pubkey' => base64_encode(sodium_crypto_sign_publickey($sessKeypair)),
+            'workstream' => 'other-agent',
         ];
+        $cert['ws_sig'] = base64_encode(sodium_crypto_sign_detached(
+            Envelope::canonical(Cert::covered($cert)), sodium_crypto_sign_secretkey($wsKeypair)
+        ));
+        $certJson = json_encode($cert, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        $signed = [
+            'id' => 'M-ABCDEF12', 'from' => 'test-agent', 'body' => 'stop safely',
+            'ts' => '2026-10-25T00:00:00+00:00', 'session' => 'sess-1',
+            'kind' => 'control', 'preemption' => 'interrupt',
+        ];
+        $sig = base64_encode(sodium_crypto_sign_detached(
+            Envelope::canonical(Envelope::sigCovered($signed + ['to' => 'bob'])),
+            sodium_crypto_sign_secretkey($sessKeypair)
+        ));
         $couch = new FakeCouch([
-            ['code' => 200, 'body' => $registry],
+            ['code' => 200, 'body' => [
+                '_id' => 'other-agent',
+                'pubkey' => base64_encode(sodium_crypto_sign_publickey($wsKeypair)),
+                'status' => 'active',
+            ]],
             ['code' => 200, 'body' => ['uuids' => ['event-1']]],
             ['code' => 201, 'body' => []],
         ]);
@@ -385,16 +401,15 @@ class MessageInjectionTest extends TestCase {
         $storage = new ContinuumStorage(new ValKeyStore($resp), $couch, new FakeArcade());
         $transport = new FakeInjectionTransport();
         $manager = $this->manager($transport, $storage);
-        $tools = new MessageTools($storage, null, null, $keyFile, $manager);
-        try {
-            $result = $tools->message_send('bob', 'stop safely', session: 'sess-1', kind: 'control', preemption: 'interrupt');
-            $data = $result->getStructuredContent();
-            $this->assertFalse($data['pushed']);
-            $this->assertSame([], $transport->calls);
-            $this->assertStringContainsString('signature verification failed', $data['fallback_reason']);
-        } finally {
-            @unlink($keyFile);
-        }
+        $tools = new MessageTools($storage, null, null, null, $manager);
+        $result = $tools->message_send(
+            'bob', 'stop safely', session: 'sess-1', kind: 'control', preemption: 'interrupt',
+            id: 'M-ABCDEF12', ts: '2026-10-25T00:00:00+00:00', sig: $sig, cert: $certJson
+        );
+        $data = $result->getStructuredContent();
+        $this->assertFalse($data['pushed']);
+        $this->assertSame([], $transport->calls);
+        $this->assertStringContainsString('signature workstream does not match sender', $data['fallback_reason']);
     }
 
     public function testProvidedTimestampSurvivesExpiryValidation(): void {
@@ -403,8 +418,8 @@ class MessageInjectionTest extends TestCase {
         $this->tools($resp)->message_send(
             'bob', 'hello', expires: $expires, id: 'M-ABCDEF12', ts: '2026-10-25T00:00:00+00:00'
         );
-        $rpush = current(array_filter($resp->calls, fn($call) => $call[0] === 'RPUSH'));
-        $envelope = json_decode($rpush[2], true);
+        $rpush = current(array_filter($resp->calls, fn($call) => $call[0] === 'EVAL'));
+        $envelope = json_decode($rpush[6], true);
         $this->assertSame('2026-10-25T00:00:00+00:00', $envelope['ts']);
         $this->assertSame($expires, $envelope['expires']);
     }
@@ -423,7 +438,8 @@ class MessageInjectionTest extends TestCase {
         $this->assertTrue($data['queued']);
         $this->assertFalse($data['pushed']);
         $this->assertSame([], $transport->calls);
-        $this->assertNotContains('RPUSH', array_column($resp->calls, 0));
+        $this->assertCount(6, $resp->calls, 'presence reads, one duplicate-check EVAL, and the audit publish are expected');
+        $this->assertSame('EVAL', $resp->calls[4][0]);
         $this->assertStringContainsString('no duplicate delivery', $result->toArray()['content'][0]['text']);
     }
 

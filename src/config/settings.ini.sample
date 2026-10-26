@@ -114,8 +114,9 @@ debug = false
 ;session_map = "{}"
 ;ca_file = ""
 ;timeout = 5
-; Sender allowlists are deny-by-default. interrupt requires kind=control and
-; require_signed defaults to true for interrupt, false for wakeup/steer.
+; Sender allowlists are deny-by-default and match the verified workstream.
+; interrupt requires kind=control and an end-to-end sig/cert, not only Continuum's
+; attestation. require_signed defaults to true for interrupt, false for wakeup/steer.
 ;wakeup_from = "devin,opencode"
 ;steer_from = "devin,opencode"
 ;interrupt_from = "sonya"

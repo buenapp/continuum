@@ -504,7 +504,7 @@ class MessageToolsTest extends TestCase {
         $this->assertSame('M-11111111', $call['fields']['thread']);
         $this->assertMatchesRegularExpression('/^M-[0-9A-F]{8}$/', $call['fields']['id']);
         // the durable inbox write happens once before the bridge send
-        $this->assertContains('RPUSH', array_column($resp->calls, 0));
+        $this->assertContains('EVAL', array_column($resp->calls, 0));
         $this->assertSame(1, $data['depth']);
     }
 

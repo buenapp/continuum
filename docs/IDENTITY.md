@@ -20,7 +20,10 @@ A receiver distinguishes three levels, highest trust first:
 An envelope with `sig`/`cert` is decided on the end-to-end path only;
 its `attest` (Continuum adds one on every configured send) is not
 consulted. Incomplete material (`sig` without `cert` or vice versa) is
-never `valid`.
+never `valid`. For direct `require_signed` control, only `signed` is
+accepted: Continuum's own `attest` is not a substitute. The verified
+`cert.workstream` must equal the authenticated sender and be present in
+that mode's allowlist.
 
 ## 2. Identity registry (read side)
 

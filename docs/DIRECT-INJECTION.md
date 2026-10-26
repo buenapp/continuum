@@ -61,11 +61,14 @@ policy before making a direct request:
   deny-by-default. An empty or missing list allows nobody.
 - `interrupt` requires `kind=control`.
 - `require_signed` defaults to false for `wakeup` and `steer`, and true for
-  `interrupt`. When true, Continuum verifies `sig`/`cert` or its own `attest`
-  against the identity registry before injecting. Explicitly setting it false
-  for `interrupt` is an operator escape hatch, not the recommended control
-  policy. Any carrier material presented is verified even when the mode does
-  not require signing.
+  `interrupt`. When true, Continuum requires an end-to-end `sig`/`cert`
+  chain (`Verify::LEVEL_SIGNED`); Continuum's own `attest` does not satisfy
+  that requirement. The verified certificate workstream must match the
+  authenticated sender and appear in the mode's allowlist. Explicitly setting
+  it false for `interrupt` is an operator escape hatch, not the recommended
+  control policy. Any carrier material presented is verified even when the
+  mode does not require signing; valid attestation is acceptable only for a
+  mode that does not require end-to-end proof.
 - Native receivers perform their own equivalent verification and policy
   decisions. A failed Continuum direct-policy check does not remove the
   durable message from the native path.
@@ -261,16 +264,18 @@ resource fan-out, offline delivery, archive, and audit behavior are unchanged.
 The companion `continuum-xmpp-bridge` forwards `preemption`, `sig`, `cert`,
 and `attest` in both directions; the bridge does not execute preemption.
 
-`inboxPushOnce` uses the existing optimistic-concurrency inbox rewrite to
-insert an envelope only when its ID is absent. The XMPP inbound hook preserves
-a Continuum-shaped `M-XXXXXXXX` stanza ID as the envelope ID and uses the same
-idempotent write. A duplicate hook returns `duplicate=true` and does not add a
-second copy. An external signer may supply `id` and `ts` to make the final
-signed envelope known in advance; a duplicate supplied ID returns
-`duplicate=true` and does not repeat XMPP or direct delivery. This is what lets
-the durable inbox, XMPP real-time copies, and direct preemption copies
-coexist. Receivers that listen to more than one path must also drop duplicates
-by envelope ID, matching Sonya's archive and control-message rule.
+`inboxPushOnce` uses one atomic O(1) ValKey script: `SET inbox-seen:<agent>:<id>
+1 NX EX 2592000` followed by `RPUSH` of the inbox entry. The 30-day seen
+marker remains after acknowledgement, so a late XMPP copy cannot be
+reinserted after the original was acked. It also avoids whole-list
+`WATCH`/`DEL` rewrites and their contention failures. A duplicate hook returns
+`duplicate=true` and does not add a second copy. An external signer may supply
+`id` and `ts` to make the final signed envelope known in advance; a duplicate
+supplied ID returns `duplicate=true` and does not repeat XMPP or direct
+delivery. This is what lets the durable inbox, XMPP real-time copies, and
+direct preemption copies coexist. Receivers that listen to more than one path
+must also drop duplicates by envelope ID, matching Sonya's archive and
+control-message rule.
 
 Direct transports receive the envelope after Continuum has added `attest`, so
 identity fields have exactly the same values as they would on the XMPP path.

@@ -58,9 +58,9 @@ class XmppInboundTest extends TestCase {
         $this->assertFalse($out['duplicate']);
         $this->assertSame('devin', $out['to']);
 
-        $rpush = current(array_filter($resp->calls, fn($call) => $call[0] === 'RPUSH'));
-        $this->assertSame('continuum:inbox:devin', $rpush[1]);
-        $env = json_decode($rpush[2], true);
+        $rpush = current(array_filter($resp->calls, fn($call) => $call[0] === 'EVAL'));
+        $this->assertSame('continuum:inbox:devin', $rpush[4]);
+        $env = json_decode($rpush[6], true);
         $this->assertMatchesRegularExpression('/^M-[0-9A-F]{8}$/', $env['id']);
         $this->assertSame('xmpp:sonya@example.com/sess-1', $env['from']);
         $this->assertSame('plan ready', $env['body']);
@@ -89,7 +89,8 @@ class XmppInboundTest extends TestCase {
         $this->assertTrue($out['duplicate']);
         $this->assertSame('M-ABCDEF12', $out['id']);
         $this->assertSame(1, $out['depth']);
-        $this->assertNotContains('RPUSH', array_column($resp->calls, 0));
+        $this->assertCount(2, $resp->calls);
+        $this->assertSame('EVAL', $resp->calls[0][0]);
     }
 
     public function testSonyaIdentityFieldsRoundTripIntoTheEnvelope(): void {
@@ -105,8 +106,8 @@ class XmppInboundTest extends TestCase {
             'sonya' => ['sig' => 'c2ln', 'cert' => 'Y2VydA==', 'attest' => 'YXR0ZXN0'],
         ]);
         $this->assertSame(200, $code);
-        $rpush = current(array_filter($resp->calls, fn($call) => $call[0] === 'RPUSH'));
-        $env = json_decode($rpush[2], true);
+        $rpush = current(array_filter($resp->calls, fn($call) => $call[0] === 'EVAL'));
+        $env = json_decode($rpush[6], true);
         $this->assertSame('c2ln', $env['sig']);
         $this->assertSame('Y2VydA==', $env['cert']);
         $this->assertSame('YXR0ZXN0', $env['attest']);

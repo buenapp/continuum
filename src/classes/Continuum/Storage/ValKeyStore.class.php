@@ -15,12 +15,21 @@ namespace Continuum\Storage;
  *   agent-sessions:{agent}   SET   session ids seen for an agent
  *   inbox:{agentId}          LIST  inbound messages (JSON; may carry
  *                                   session/task targeting and lease markers)
+ *   inbox-seen:{agent}:{id}  STR   30-day dedupe marker for idempotent pushes
  *   signal:{channel}         PUBSUB channels (no persistence)
  */
 class ValKeyStore {
 
     private const NS = 'continuum:';
     private const LOCK_RELEASE_LUA = 'if redis.call("get",KEYS[1]) == ARGV[1] then return redis.call("del",KEYS[1]) else return 0 end';
+    private const INBOX_SEEN_TTL_SECONDS = 2592000; // 30 days, including after inbox acknowledgement
+    private const INBOX_PUSH_ONCE_LUA = <<<'LUA'
+local inserted = redis.call('SET', KEYS[1], '1', 'NX', 'EX', ARGV[1])
+if inserted then
+  return {1, redis.call('RPUSH', KEYS[2], ARGV[2])}
+end
+return {0, redis.call('LLEN', KEYS[2])}
+LUA;
 
     /** Stale session cards vanish after this many idle seconds. */
     private const SESSION_TTL = 14400;
@@ -339,19 +348,19 @@ class ValKeyStore {
         if (!is_string($id) || $id === '') {
             return ['depth' => $this->inboxPush($agentId, $message), 'inserted' => true];
         }
-        $result = $this->inboxRewrite($agentId, function (array $entries) use ($message, $id) {
-            foreach ($entries as $entry) {
-                if (($entry['id'] ?? null) === $id) {
-                    return [$entries, ['depth' => count($entries), 'inserted' => false]];
-                }
-            }
-            $kept = array_merge($entries, [$message]);
-            return [$kept, ['depth' => count($kept), 'inserted' => true]];
-        });
-        if ($result === null) {
-            throw new \RuntimeException("inbox for {$agentId} changed concurrently; retry the push");
+        // SET NX EX and RPUSH are one atomic O(1) operation. The seen marker
+        // outlives acknowledgement, so late XMPP copies cannot be reinserted.
+        $result = $this->client->command(
+            'EVAL', self::INBOX_PUSH_ONCE_LUA, '2',
+            self::NS . 'inbox-seen:' . $agentId . ':' . $id,
+            self::NS . 'inbox:' . $agentId,
+            (string)self::INBOX_SEEN_TTL_SECONDS,
+            json_encode($message)
+        );
+        if (!is_array($result) || count($result) !== 2) {
+            throw new \RuntimeException("idempotent inbox push for {$agentId} failed");
         }
-        return $result;
+        return ['depth' => (int)$result[1], 'inserted' => (bool)$result[0]];
     }
 
     /** Drain all pending inbox messages for an agent. */

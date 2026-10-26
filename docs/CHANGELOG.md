@@ -20,9 +20,12 @@ introduces them (see AGENTS.md). Version parity is enforced between
   `interrupted=true`. Every send writes the durable inbox once with
   `inboxPushOnce`; XMPP inbound deduplicates by envelope ID. `queued` and
   `pushed` are independent, and `preemption_via` reports `native`, a direct
-  transport, or `none`. OpenHands terminal states are mapped for resumable
-  wakeups, and one absolute deadline bounds the whole liveness-plus-injection
-  attempt. Per-agent `[injection.<agent>]` configuration supports
+  transport, or `none`. `require_signed` accepts only end-to-end `sig`/`cert`,
+  with the verified workstream bound to the sender and allowlist; Continuum
+  attestation alone does not authorize `interrupt`. A 30-day seen marker makes
+  inbox dedupe O(1) and acknowledgement-safe. OpenHands terminal states are
+  mapped for resumable wakeups, and one absolute deadline bounds the whole
+  liveness-plus-injection attempt. Per-agent `[injection.<agent>]` configuration supports
   credential-file references, session-ID resolution, and explicit OpenCode
   wire versions. Optional `id`/`ts` passthrough makes external signed control
   possible; duplicate IDs return `duplicate=true` without repeating delivery.

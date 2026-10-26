@@ -53,6 +53,24 @@ class ValKeyStoreTest extends TestCase {
         $this->assertNull($this->store([null])->claimTask('default'));
     }
 
+    public function testInboxPushOnceIsAtomicAndDeduplicatesAfterAck(): void {
+        $fake = new FakeRespClient([[1, 1], [0, 0]]);
+        $store = new ValKeyStore($fake);
+        $first = $store->inboxPushOnce('agent-a', ['id' => 'M-ABCDEF12', 'body' => 'x']);
+        $second = $store->inboxPushOnce('agent-a', ['id' => 'M-ABCDEF12', 'body' => 'x']);
+        $this->assertSame(['depth' => 1, 'inserted' => true], $first);
+        $this->assertSame(['depth' => 0, 'inserted' => false], $second);
+        $this->assertSame(['EVAL', 'EVAL'], array_column($fake->calls, 0));
+        $call = $fake->calls[0];
+        $this->assertStringContainsString("'NX', 'EX'", $call[1]);
+        $this->assertSame('continuum:inbox-seen:agent-a:M-ABCDEF12', $call[3]);
+        $this->assertSame('continuum:inbox:agent-a', $call[4]);
+        $this->assertSame('2592000', $call[5]);
+        $this->assertSame('x', json_decode($call[6], true)['body']);
+        $this->assertNotContains('WATCH', array_column($fake->calls, 0));
+        $this->assertNotContains('DEL', array_column($fake->calls, 0));
+    }
+
     public function testInboxDrainEmptiesAndDecodes(): void {
         $fake = new FakeRespClient([['{"m":1}'], 1]);
         $store = new ValKeyStore($fake);

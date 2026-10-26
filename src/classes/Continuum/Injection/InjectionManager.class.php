@@ -109,41 +109,58 @@ class InjectionManager {
     private function assertPolicy(array $target, array $envelope, string $preemption, string $agent): void {
         $sender = (string)($envelope['from'] ?? '');
         $allowed = $target[$preemption . '_from'] ?? [];
-        if (!in_array($sender, $allowed, true)) {
-            throw new TransportException('preemption denied by policy');
-        }
         if ($preemption === 'interrupt' && ($envelope['kind'] ?? null) !== 'control') {
             throw new TransportException('interrupt requires kind=control');
         }
         $hasCarrier = isset($envelope['sig']) || isset($envelope['cert']) || isset($envelope['attest']);
         $requireSigned = $target['require_signed'] ?? ($preemption === 'interrupt');
-        if ($requireSigned || $hasCarrier) {
-            if (!$this->verifyEnvelope($agent, $envelope)) {
-                throw new TransportException('signature verification failed');
+        if (!$requireSigned && !$hasCarrier) {
+            if (!in_array($sender, $allowed, true)) {
+                throw new TransportException('preemption denied by policy');
             }
+            return;
+        }
+        $verification = $this->verifyEnvelope($agent, $envelope);
+        if (!$verification['valid']) {
+            throw new TransportException('signature verification failed');
+        }
+        // require_signed means sender-controlled end-to-end proof, never a
+        // same-request attestation created by Continuum itself.
+        if ($requireSigned && $verification['level'] !== Verify::LEVEL_SIGNED) {
+            throw new TransportException('signed control required');
+        }
+        if ($verification['workstream'] !== $sender) {
+            throw new TransportException('signature workstream does not match sender');
+        }
+        if (!in_array($verification['workstream'], $allowed, true)) {
+            throw new TransportException('preemption denied by policy');
         }
     }
 
-    /** Verify end-to-end signed material or Continuum's attestation locally. */
-    private function verifyEnvelope(string $agent, array $envelope): bool {
-        if ($this->storage === null) { return false; }
+    /** Return the verified trust level and workstream, never just a boolean. */
+    private function verifyEnvelope(string $agent, array $envelope): array {
+        $unknown = ['valid' => false, 'level' => null, 'workstream' => null];
+        if ($this->storage === null) { return $unknown; }
         $hasSig = isset($envelope['sig']) || isset($envelope['cert']);
         $hasAttest = isset($envelope['attest']);
-        if (!$hasSig && !$hasAttest) { return false; }
+        if (!$hasSig && !$hasAttest) { return $unknown; }
         try {
             if ($hasSig) {
-                if (!isset($envelope['sig'], $envelope['cert'])) { return false; }
+                if (!isset($envelope['sig'], $envelope['cert'])) { return $unknown; }
                 $cert = Cert::parse((string)$envelope['cert']);
                 $identity = $this->storage->loadIdentity($cert['workstream']);
             } else {
                 $identity = $this->storage->loadIdentity('continuum');
             }
-            if (!is_array($identity)) { return false; }
+            if (!is_array($identity)) { return $unknown; }
             $result = Verify::envelope($envelope + ['to' => $agent], $identity);
-            return ($result['valid'] ?? false) === true
-                && in_array($result['level'] ?? null, [Verify::LEVEL_SIGNED, Verify::LEVEL_ATTESTED], true);
+            return [
+                'valid' => ($result['valid'] ?? false) === true,
+                'level' => $result['level'] ?? null,
+                'workstream' => $result['workstream'] ?? null,
+            ];
         } catch (\Throwable) {
-            return false;
+            return $unknown;
         }
     }
 

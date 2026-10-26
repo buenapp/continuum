@@ -44,7 +44,9 @@ once on every send, including sends that also use XMPP or direct injection.
 This changes the old no-local-copy XMPP behavior intentionally. XMPP inbound
 hooks use the same idempotent write and preserve a Continuum `M-XXXXXXXX`
 stanza ID, so duplicate real-time deliveries do not create duplicate inbox
-entries. Upgrade `continuum-xmpp-bridge` alongside Continuum so `preemption`,
+entries. A 30-day seen marker survives acknowledgement, and its atomic
+`SET NX EX` + `RPUSH` script avoids whole-list rewrite races. Upgrade
+`continuum-xmpp-bridge` alongside Continuum so `preemption`,
 `sig`, `cert`, and `attest` are forwarded in both directions.
 
 Without the `preemption` argument, no direct transport request is made. With
@@ -64,7 +66,8 @@ operator-owned `[injection.<agent>]` sections (see
 credential-file references, not secrets in the public tree. Sender allowlists
 `wakeup_from`, `steer_from`, and `interrupt_from` are deny-by-default.
 `require_signed` defaults to true for `interrupt` and false for the other
-modes; Continuum verifies control signatures or attestation before acting.
+modes. It requires an end-to-end `sig`/`cert` chain, not Continuum's own
+attestation; the verified workstream must match the sender and be allowlisted.
 Declare native receivers separately in `[injection] native_receivers`.
 
 Every send has `queued=true` when the durable write succeeds. `pushed`,
