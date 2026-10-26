@@ -45,7 +45,9 @@ This changes the old no-local-copy XMPP behavior intentionally. XMPP inbound
 hooks use the same idempotent write and preserve a Continuum `M-XXXXXXXX`
 stanza ID, so duplicate real-time deliveries do not create duplicate inbox
 entries. A 30-day seen marker survives acknowledgement, and its atomic
-`SET NX EX` + `RPUSH` script avoids whole-list rewrite races. Upgrade
+`SET NX EX` + `RPUSH` script avoids whole-list rewrite races. Each seen key
+lives for 30 days, so ValKey memory scales with recipient/message volume over
+that window; keys expire naturally and require no migration. Upgrade
 `continuum-xmpp-bridge` alongside Continuum so `preemption`,
 `sig`, `cert`, and `attest` are forwarded in both directions.
 
@@ -89,8 +91,9 @@ Apache mod PHP needs no event loop or worker pool: it uses the blocking
 no-loop path, with the configured timeout bounding the whole attempt.
 
 Plain HTTP and CA-validated HTTPS/TLS are supported for this change. DANE
-TLSA-first validation is a separate future Extras integration (task
-`T-78EF8F46`), not a Continuum-specific implementation.
+TLSA-first validation is a separate future Extras integration
+([Enchilada/Extras#64](https://git.morante.net/Enchilada/Extras/issues/64),
+also tracked as `T-78EF8F46`), not a Continuum-specific implementation.
 
 ## 0.4.1 (messaging hardening + strict-client schema fix)
 

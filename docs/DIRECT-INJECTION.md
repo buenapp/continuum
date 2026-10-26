@@ -262,7 +262,10 @@ XMPP remains configured under `[xmpp]`, not `[injection.*]`, and remains the
 first-class real-time transport. Its sidecar API, bare-JID addressing,
 resource fan-out, offline delivery, archive, and audit behavior are unchanged.
 The companion `continuum-xmpp-bridge` forwards `preemption`, `sig`, `cert`,
-and `attest` in both directions; the bridge does not execute preemption.
+and `attest` in both directions; the bridge does not execute preemption. It
+uses separate fetch and commit cursors, an in-flight list to prevent duplicate
+enqueues, a bounded queue, transient-only deadline retries, and permanent
+dead-letter files so rejected messages are not silently lost.
 
 `inboxPushOnce` uses one atomic O(1) ValKey script: `SET inbox-seen:<agent>:<id>
 1 NX EX 2592000` followed by `RPUSH` of the inbox entry. The 30-day seen
@@ -288,9 +291,9 @@ Continuum does not rewrite or strip carrier material.
 For this change, plain HTTP and HTTPS/TLS with the existing CA/system-store
 validation are supported, as explicitly accepted by the operator on
 2026-10-25. DANE TLSA-first validation is a separate shared-Extras follow-up
-(`T-78EF8F46`); no Continuum-specific partial TLSA validator is introduced.
-There is no restriction to plain HTTP and no claim that DANE is implemented
-here.
+([Enchilada/Extras#64](https://git.morante.net/Enchilada/Extras/issues/64));
+no Continuum-specific partial TLSA validator is introduced. There is no
+restriction to plain HTTP and no claim that DANE is implemented here.
 
 ## Scale model
 

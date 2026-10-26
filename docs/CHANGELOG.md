@@ -41,7 +41,8 @@ introduces them (see AGENTS.md). Version parity is enforced between
   Apache mod PHP uses Tortilla's blocking, no-loop mode.
 - Plain HTTP and CA-validated HTTPS/TLS are supported for this change.
   DANE TLSA-first validation is intentionally a separate Extras follow-up
-  (`T-78EF8F46`), not a Continuum-specific partial validator.
+  ([Enchilada/Extras#64](https://git.morante.net/Enchilada/Extras/issues/64)),
+  not a Continuum-specific partial validator.
 
 ## 0.5.0 (2026-10-22)
 
