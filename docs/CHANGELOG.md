@@ -4,6 +4,14 @@ All notable behavior changes ship in this file alongside the code that
 introduces them (see AGENTS.md). Version parity is enforced between
 `APPLICATION_VERSION`, the FreeBSD port's `DISTVERSION`, and the git tag.
 
+## 0.5.2 (2026-11-05)
+
+### Fixed
+
+- `blackboard_keys` now always returns a JSON array when unrelated board
+  scopes sort before the selected scope. Preserving CouchDB row indexes
+  produced an object and strict MCP clients rejected the result.
+
 ## 0.5.1 (2026-11-05)
 
 ### Fixed

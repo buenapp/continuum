@@ -92,9 +92,9 @@ class BoardToolsTest extends TestCase {
     public function testKeysListsScope(): void {
         $couch = new FakeCouch([
             ['code' => 200, 'body' => ['rows' => [
+                (object)['id' => 'ops/c', 'doc' => null],
                 (object)['id' => 'global/a', 'doc' => null],
                 (object)['id' => 'global/b', 'doc' => null],
-                (object)['id' => 'ops/c', 'doc' => null],
             ]]],
         ]);
         $result = (new BoardTools($this->storage($couch)))->blackboard_keys();
