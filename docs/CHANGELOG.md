@@ -17,6 +17,9 @@ introduces them (see AGENTS.md). Version parity is enforced between
   documents and ValKey task queues. It defaults to a dry run, refuses
   same-key value conflicts before mutating anything, preserves task ids and
   queue order, deduplicates queued task ids, and supports no-op reruns.
+- The FreeBSD package now installs the identity registry and identity
+  runtime classes, plus the complete vendored MCP and HTTP runtime. The
+  0.5.0 port omitted files required by the packaged server.
 
 ## 0.5.0 (2026-10-22)
 
