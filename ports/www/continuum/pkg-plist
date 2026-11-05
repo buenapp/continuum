@@ -58,6 +58,7 @@
 %%WWWDIR%%/libraries/Enchilada/Tortilla/HttpClient.php
 %%WWWDIR%%/libraries/Enchilada/Tortilla/HttpSseTransport.php
 %%WWWDIR%%/libraries/Enchilada/Tortilla/Oauth3LOClient.php
+%%WWWDIR%%/libraries/Enchilada/Tortilla/OAuthCallbackHelper.php
 %%WWWDIR%%/libraries/Enchilada/Tortilla/RequestEra.php
 %%WWWDIR%%/libraries/Enchilada/Tortilla/StdioTransport.php
 %%WWWDIR%%/libraries/EnchiladaHTTP/EnchiladaHTTP.class.php
@@ -73,6 +74,7 @@
 %%WWWDIR%%/libraries/EnchiladaMCP/ToolRegistry.class.php
 %%WWWDIR%%/libraries/EnchiladaMCP/ToolResult.class.php
 %%WWWDIR%%/libraries/EnchiladaMCP/ToolWarningInterface.class.php
+%%WWWDIR%%/libraries/EnchiladaMCP/mcp.inc.php
 %%WWWDIR%%/libraries/EnchiladaOTLP/EnchiladaOTLP.class.php
 %%WWWDIR%%/public/index.php
 %%WWWDIR%%/system/app.conf.php
