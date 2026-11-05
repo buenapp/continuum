@@ -38,6 +38,8 @@ class ContextTools {
     )]
     public function context_pack(?string $scope = null, ?string $taskId = null, int $tokenBudget = 2000, ?string $query = null): ToolResult {
         if ($tokenBudget < 100) { $tokenBudget = 100; }
+        $boardScope = Scope::canonical($scope);
+        $scopeFilter = Scope::filter($scope);
         $budget = $tokenBudget * self::CHARS_PER_TOKEN;
         $used = 0;
         $omitted = ['tasks' => 0, 'board' => 0];
@@ -51,7 +53,7 @@ class ContextTools {
             return true;
         };
 
-        $emit('# Context Pack (scope: ' . ($scope ?? 'global') . ')');
+        $emit('# Context Pack (scope: ' . $boardScope . ')');
 
         // Focused task with graph neighborhood
         if ($taskId !== null) {
@@ -83,7 +85,7 @@ class ContextTools {
         // Open tasks in scope, ranked: status weight, then priority, then recency
         $tasks = [];
         foreach ($this->storage->listTaskDocs() as $id => $doc) {
-            if ($scope !== null && ($doc['scope'] ?? 'global') !== $scope) { continue; }
+            if ($scopeFilter !== null && ($doc['scope'] ?? 'global') !== $scopeFilter) { continue; }
             $status = $doc['status'] ?? 'pending';
             if ($status === 'done' || $status === 'cancelled') { continue; }
             $doc['_id'] = $id;
@@ -122,7 +124,7 @@ class ContextTools {
         }
 
         // Board entries: own scope + global, recent first
-        foreach (array_unique([$scope ?? 'global', 'global']) as $board) {
+        foreach (array_unique([$boardScope, 'global']) as $board) {
             $docs = $this->storage->listBoardDocs($board);
             if (empty($docs)) { continue; }
             uasort($docs, fn($a, $b) => strcmp($b['updated_at'] ?? '', $a['updated_at'] ?? ''));
@@ -160,7 +162,7 @@ class ContextTools {
 
         $pack = implode("\n", $sections);
         return ToolResult::structured($pack, [
-            'scope' => $scope ?? 'global',
+            'scope' => $boardScope,
             'task' => $taskId,
             'est_tokens' => (int)ceil($used / self::CHARS_PER_TOKEN),
             'omitted' => $omitted,

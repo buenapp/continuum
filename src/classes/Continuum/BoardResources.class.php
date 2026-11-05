@@ -30,6 +30,7 @@ class BoardResources {
             $segments = explode('/', (string)$id, 2);
             if (count($segments) !== 2) { continue; }
             [$scope, $key] = $segments;
+            $scope = Scope::canonical($scope);
             $scopes[$scope][$key] = [
                 'updated_by' => $doc['updated_by'] ?? null,
                 'updated_at' => $doc['updated_at'] ?? null,
@@ -49,6 +50,7 @@ class BoardResources {
         annotations: ['audience' => ['assistant']]
     )]
     public function board_entry(string $scope, string $key): array {
+        $scope = Scope::canonical($scope);
         $entry = $this->storage->loadBoardEntry($scope, $key)
             ?? throw new \RuntimeException("no board entry {$scope}/{$key}");
         return $this->withLastModified([
@@ -69,6 +71,7 @@ class BoardResources {
         annotations: ['audience' => ['assistant']]
     )]
     public function board_snapshot(string $scope): array {
+        $scope = Scope::canonical($scope);
         $docs = $this->storage->listBoardDocs($scope);
         uasort($docs, fn($a, $b) => strcmp($b['updated_at'] ?? '', $a['updated_at'] ?? ''));
         $entries = [];

@@ -41,6 +41,17 @@ class BoardResourcesTest extends TestCase {
         $this->assertSame(['assistant'], $content['annotations']['audience']);
     }
 
+    public function testMixedCaseResourceUsesCanonicalScopeAndPreservesKey(): void {
+        $couch = new FakeCouch([
+            ['code' => 200, 'body' => ['value' => 'shared', 'updated_by' => 'bob']],
+        ]);
+        $content = $this->registry($couch)->readResource('continuum://board/HELIOFANE/CaseKey');
+        $body = json_decode($content['text'], true);
+        $this->assertSame('heliofane', $body['scope']);
+        $this->assertSame('CaseKey', $body['key']);
+        $this->assertSame('continuum_boards/heliofane%2FCaseKey', $couch->calls[0]['path']);
+    }
+
     public function testEntryMissingThrows(): void {
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('no board entry global/nope');

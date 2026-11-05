@@ -36,7 +36,7 @@ class SubscriptionFeed {
     public function stream(array $filter): \Generator {
         $uris = [];
         foreach ((array)($filter['resourceSubscriptions'] ?? []) as $uri) {
-            if (is_string($uri) && $uri !== '') { $uris[] = $uri; }
+            if (is_string($uri) && $uri !== '') { $uris[] = self::canonicalUri($uri); }
         }
         $client = $this->client ?? new RespClient($this->host, $this->port);
         try {
@@ -47,7 +47,11 @@ class SubscriptionFeed {
                 if (($push[0] ?? '') !== 'message') { continue; }
                 $payload = json_decode((string)($push[2] ?? ''), true);
                 if (!is_array($payload)) { continue; }
-                foreach (array_intersect((array)($payload['uris'] ?? []), $uris) as $uri) {
+                $changed = array_map(
+                    fn($uri) => is_string($uri) ? self::canonicalUri($uri) : $uri,
+                    (array)($payload['uris'] ?? [])
+                );
+                foreach (array_intersect($changed, $uris) as $uri) {
                     yield ['method' => 'notifications/resources/updated', 'params' => ['uri' => $uri]];
                 }
             }
@@ -55,6 +59,18 @@ class SubscriptionFeed {
             // a dead socket ends the stream; the transport closes gracefully
         } finally {
             $client->close();
+        }
+    }
+
+    /** Scope segments are insensitive; keys and every other URI segment stay exact. */
+    private static function canonicalUri(string $uri): string {
+        if (!preg_match('#^(continuum://(?:board|snapshot)/)([^/]+)(.*)$#', $uri, $m)) {
+            return $uri;
+        }
+        try {
+            return $m[1] . Scope::canonical($m[2]) . $m[3];
+        } catch (\InvalidArgumentException) {
+            return $uri;
         }
     }
 }

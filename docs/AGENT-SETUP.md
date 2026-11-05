@@ -93,6 +93,10 @@ A paste-ready `AGENTS.md` block for project repos is in
 [`AGENTS-SNIPPET.md`](AGENTS-SNIPPET.md). It encodes the session protocol
 below as agent-visible rules, scoped per project.
 
+Board and task scope names are case-insensitive and canonically lowercase:
+`HELIOFANE` and `heliofane` select the same scope. Board keys and task, agent,
+session and lock identifiers remain case-sensitive.
+
 ## Session protocol (what agents should do)
 
 Continuum is the coordination surface, not a chat log. Per session

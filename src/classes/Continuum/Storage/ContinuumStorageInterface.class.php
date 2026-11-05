@@ -58,6 +58,8 @@ interface ContinuumStorageInterface {
     public function loadBoardEntry(string $board, string $key): ?array;
     public function listBoardKeys(string $board): array;
     public function deleteBoardEntry(string $board, string $key, string $rev): void;
+    /** Audit or merge legacy case-variant scopes; apply requires paused writes. */
+    public function migrateScopes(bool $apply = false): array;
 
     // --- Structural (ArcadeDB)
     public function upsertTaskNode(string $taskId, array $props = []): void;

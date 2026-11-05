@@ -1,4 +1,5 @@
 %%WWWDIR%%/bin/mcp-stdio
+%%WWWDIR%%/bin/scope-migrate
 %%WWWDIR%%/bin/smoke-test
 %%WWWDIR%%/classes/Continuum/AgentResources.class.php
 %%WWWDIR%%/classes/Continuum/AgentTools.class.php
@@ -14,6 +15,7 @@
 %%WWWDIR%%/classes/Continuum/LockTools.class.php
 %%WWWDIR%%/classes/Continuum/MemoryTools.class.php
 %%WWWDIR%%/classes/Continuum/MessageTools.class.php
+%%WWWDIR%%/classes/Continuum/Scope.class.php
 %%WWWDIR%%/classes/Continuum/ServerTools.class.php
 %%WWWDIR%%/classes/Continuum/SessionContext.class.php
 %%WWWDIR%%/classes/Continuum/StatusTools.class.php

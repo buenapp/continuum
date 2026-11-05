@@ -48,11 +48,7 @@ class TaskTools {
         int $priority = 2,
         ?array $dependsOn = null,
     ): ToolResult {
-        $scope = ($scope === null || $scope === '') ? 'global' : $scope;
-        // Same segment rules as board scopes (queue name and doc structure).
-        if (!preg_match('/^[A-Za-z0-9][A-Za-z0-9._-]*$/', $scope)) {
-            throw new \InvalidArgumentException("invalid scope '{$scope}'");
-        }
+        $scope = Scope::canonical($scope);
         $now = gmdate('c');
         // CouchDB _uuids are sequential per node (stable prefix), so ids use
         // a random suffix with retry-on-collision instead.
@@ -100,6 +96,7 @@ class TaskTools {
         outputSchema: self::TASK_LIST_SCHEMA
     )]
     public function task_list(?string $scope = null, ?string $status = null, ?string $owner = null, int $limit = 50): ToolResult {
+        $scope = Scope::filter($scope);
         $tasks = [];
         foreach ($this->storage->listTaskDocs() as $id => $doc) {
             if ($scope !== null && ($doc['scope'] ?? 'global') !== $scope) { continue; }
@@ -319,7 +316,7 @@ class TaskTools {
         return [
             'task' => $taskId,
             'title' => $task['title'] ?? '',
-            'scope' => $task['scope'] ?? 'global',
+            'scope' => Scope::canonical($task['scope'] ?? null),
             'status' => $task['status'] ?? 'pending',
             'owner' => $task['owner'] ?? null,
             'assignee' => $task['assignee'] ?? null,

@@ -2,6 +2,8 @@
 
 namespace Continuum\Storage;
 
+use Continuum\Scope;
+
 /**
  * ContinuumStorage - the single facade tools talk to.
  *
@@ -71,13 +73,13 @@ class ContinuumStorage implements ContinuumStorageInterface {
 
     // --- Ephemeral passthrough
     public function enqueueTask(string $queue, string $taskId, array $payload): void {
-        $this->valkey->enqueueTask($queue, $taskId, $payload);
+        $this->valkey->enqueueTask(Scope::canonical($queue), $taskId, $payload);
     }
     public function claimQueuedTask(string $queue): ?array {
-        return $this->valkey->claimTask($queue);
+        return $this->valkey->claimTask(Scope::canonical($queue));
     }
     public function releaseToQueue(string $queue, string $taskId): void {
-        $this->valkey->releaseToQueue($queue, $taskId);
+        $this->valkey->releaseToQueue(Scope::canonical($queue), $taskId);
     }
     public function publishSignal(string $channel, array $signal): void {
         $this->valkey->publishSignal($channel, $signal);
@@ -163,7 +165,7 @@ class ContinuumStorage implements ContinuumStorageInterface {
         return $this->valkey->listLocks();
     }
     public function queueDepth(string $queue): int {
-        return $this->valkey->queueDepth($queue);
+        return $this->valkey->queueDepth(Scope::canonical($queue));
     }
     /** All event-log documents (id => doc), unsorted. Callers filter/limit. */
     public function listEventDocs(): array {
@@ -204,22 +206,28 @@ class ContinuumStorage implements ContinuumStorageInterface {
         return $this->couch->listDocs('identities');
     }
     public function saveTask(string $taskId, array $task, ?string $rev = null): array {
+        $task['scope'] = Scope::canonical($task['scope'] ?? null);
         $wrote = $this->couch->put('tasks', $taskId, $task, $rev);
         $this->arcade->upsertTaskNode($taskId, $task);
         $this->publishChanges(['continuum://tasks', "continuum://tasks/{$taskId}"]);
         return $wrote;
     }
     public function loadTask(string $taskId): ?array {
-        return $this->couch->get('tasks', $taskId);
+        $task = $this->couch->get('tasks', $taskId);
+        if ($task !== null) { $task['scope'] = Scope::canonical($task['scope'] ?? null); }
+        return $task;
     }
     public function listTaskIds(): array {
         return $this->couch->listIds('tasks');
     }
     public function listTaskDocs(): array {
-        return $this->couch->listDocs('tasks');
+        $tasks = $this->couch->listDocs('tasks');
+        foreach ($tasks as &$task) { $task['scope'] = Scope::canonical($task['scope'] ?? null); }
+        unset($task);
+        return $tasks;
     }
     public function listBoardDocs(string $board): array {
-        $prefix = $board . '/';
+        $prefix = Scope::canonical($board) . '/';
         $docs = [];
         foreach ($this->couch->listDocs('boards') as $id => $doc) {
             if (str_starts_with($id, $prefix)) { $docs[substr($id, strlen($prefix))] = $doc; }
@@ -234,11 +242,15 @@ class ContinuumStorage implements ContinuumStorageInterface {
         return $this->couch->newId();
     }
     public function appendLog(string $agentId, string $type, array $data): string {
+        if (isset($data['scope']) && is_string($data['scope'])) {
+            $data['scope'] = Scope::canonical($data['scope']);
+        }
         $id = $this->couch->appendLog($agentId, $type, $data);
         $this->publishChanges(['continuum://events']);
         return $id;
     }
     public function saveBoardEntry(string $board, string $key, array $entry, ?string $rev = null): array {
+        $board = Scope::canonical($board);
         $wrote = $this->couch->put('boards', self::boardId($board, $key), $entry, $rev);
         $this->publishChanges([
             'continuum://board/index',
@@ -251,12 +263,14 @@ class ContinuumStorage implements ContinuumStorageInterface {
         return $this->couch->get('boards', self::boardId($board, $key));
     }
     public function listBoardKeys(string $board): array {
+        $board = Scope::canonical($board);
         return array_map(
             fn($id) => preg_replace('#^' . preg_quote($board . '/', '#') . '#', '', $id),
             array_filter($this->couch->listIds('boards'), fn($id) => str_starts_with($id, $board . '/'))
         );
     }
     public function deleteBoardEntry(string $board, string $key, string $rev): void {
+        $board = Scope::canonical($board);
         $this->couch->deleteDoc('boards', self::boardId($board, $key), $rev);
         $this->publishChanges([
             'continuum://board/index',
@@ -270,14 +284,110 @@ class ContinuumStorage implements ContinuumStorageInterface {
      * (CouchDB reserves that namespace) and must not contain '/'.
      */
     private static function boardId(string $board, string $key): string {
-        foreach (['scope' => $board, 'key' => $key] as $what => $seg) {
-            if (!preg_match('/^[A-Za-z0-9][A-Za-z0-9._-]*$/', $seg)) {
-                throw new \InvalidArgumentException(
-                    "invalid {$what} '{$seg}': start with [A-Za-z0-9]; only letters, digits, '.', '_' and '-' allowed"
-                );
-            }
+        $board = Scope::canonical($board);
+        if (!preg_match('/^[A-Za-z0-9][A-Za-z0-9._-]*$/', $key)) {
+            throw new \InvalidArgumentException(
+                "invalid key '{$key}': start with [A-Za-z0-9]; only letters, digits, '.', '_' and '-' allowed"
+            );
         }
         return "{$board}/{$key}";
+    }
+
+    /**
+     * Audit or merge case-variant board docs, task docs and task queues.
+     * Conflicting values are reported before any mutation. Run with writes paused.
+     */
+    public function migrateScopes(bool $apply = false): array {
+        $boards = $this->couch->listDocs('boards');
+        $tasks = $this->couch->listDocs('tasks');
+        $queues = $this->valkey->taskQueueScopes();
+        $report = ['applied' => false, 'boards' => [], 'tasks' => [], 'queues' => [], 'conflicts' => []];
+        $groups = [];
+
+        foreach ($boards as $id => $doc) {
+            $segments = explode('/', (string)$id, 2);
+            if (count($segments) !== 2) { continue; }
+            [$sourceScope, $key] = $segments;
+            try {
+                $target = Scope::canonical($sourceScope) . '/' . $key;
+            } catch (\InvalidArgumentException $e) {
+                $report['conflicts'][] = $e->getMessage() . " in board document {$id}";
+                continue;
+            }
+            $groups[$target][$id] = $doc;
+            if ($id !== $target) {
+                if (empty($doc['_rev'])) { $report['conflicts'][] = "board document {$id} has no revision"; }
+                $report['boards'][] = ['source' => $id, 'target' => $target];
+            }
+        }
+        foreach ($groups as $target => $variants) {
+            $baseline = null;
+            foreach ($variants as $doc) {
+                unset($doc['_id'], $doc['_rev']);
+                if ($baseline === null) { $baseline = $doc; continue; }
+                if ($doc !== $baseline) {
+                    $report['conflicts'][] = "board entries for {$target} differ by case and value; merge them manually";
+                    break;
+                }
+            }
+        }
+        foreach ($tasks as $id => $doc) {
+            $source = $doc['scope'] ?? 'global';
+            $target = Scope::canonical(is_string($source) ? $source : null);
+            if ($source !== $target) {
+                if (empty($doc['_rev'])) { $report['conflicts'][] = "task document {$id} has no revision"; }
+                $report['tasks'][] = ['task' => $id, 'source' => $source, 'target' => $target];
+            }
+        }
+        foreach ($queues as $scope) {
+            $target = Scope::canonical($scope);
+            if ($scope !== $target) { $report['queues'][] = ['source' => $scope, 'target' => $target]; }
+        }
+        if (!$apply || $report['conflicts'] !== []) { return $report; }
+
+        $created = [];
+        foreach ($report['boards'] as $move) {
+            $source = $move['source'];
+            $target = $move['target'];
+            $doc = $groups[$target][$source];
+            if (!isset($groups[$target][$target]) && !isset($created[$target])) {
+                unset($doc['_id'], $doc['_rev']);
+                $this->couch->put('boards', $target, $doc);
+                $created[$target] = true;
+            }
+            $this->couch->deleteDoc('boards', $source, $groups[$target][$source]['_rev']);
+        }
+        foreach ($report['tasks'] as $move) {
+            $id = $move['task'];
+            $doc = $tasks[$id];
+            $doc['scope'] = $move['target'];
+            $rev = $doc['_rev'];
+            unset($doc['_id']);
+            $this->couch->put('tasks', $id, $doc, $rev);
+        }
+        foreach ($report['queues'] as $move) {
+            $this->valkey->mergeTaskQueue($move['source'], $move['target']);
+        }
+
+        foreach ($this->couch->listDocs('boards') as $id => $_doc) {
+            $scope = explode('/', (string)$id, 2)[0];
+            if ($scope !== Scope::canonical($scope)) {
+                throw new \RuntimeException("scope migration incomplete: board document {$id} remains");
+            }
+        }
+        foreach ($this->couch->listDocs('tasks') as $id => $doc) {
+            $scope = $doc['scope'] ?? 'global';
+            if ($scope !== Scope::canonical(is_string($scope) ? $scope : null)) {
+                throw new \RuntimeException("scope migration incomplete: task document {$id} remains in {$scope}");
+            }
+        }
+        foreach ($this->valkey->taskQueueScopes() as $scope) {
+            if ($scope !== Scope::canonical($scope)) {
+                throw new \RuntimeException("scope migration incomplete: task queue {$scope} remains");
+            }
+        }
+        $report['applied'] = true;
+        return $report;
     }
 
     // --- Structural passthrough

@@ -21,6 +21,7 @@ class ValKeyStore {
 
     private const NS = 'continuum:';
     private const LOCK_RELEASE_LUA = 'if redis.call("get",KEYS[1]) == ARGV[1] then return redis.call("del",KEYS[1]) else return 0 end';
+    private const QUEUE_MERGE_LUA = 'local seen={} for _,v in ipairs(redis.call("lrange",KEYS[1],0,-1)) do seen[v]=true end local moved=0 for _,v in ipairs(redis.call("lrange",KEYS[2],0,-1)) do if not seen[v] then redis.call("rpush",KEYS[1],v) seen[v]=true moved=moved+1 end end redis.call("del",KEYS[2]) return moved';
 
     /** Stale session cards vanish after this many idle seconds. */
     private const SESSION_TTL = 14400;
@@ -348,5 +349,30 @@ class ValKeyStore {
     /** Count of board-visible sectors: pending tasks per known queue. */
     public function queueDepth(string $queue): int {
         return (int)$this->client->command('LLEN', self::NS . 'queue:' . $queue);
+    }
+
+    /** All task queue scopes, including empty legacy queues. */
+    public function taskQueueScopes(): array {
+        $scopes = [];
+        $cursor = '0';
+        do {
+            $result = $this->client->command('SCAN', $cursor, 'MATCH', self::NS . 'queue:*', 'COUNT', '100');
+            if (!is_array($result) || count($result) < 2) { break; }
+            $cursor = (string)$result[0];
+            foreach ((array)$result[1] as $key) {
+                $scopes[] = substr($key, strlen(self::NS . 'queue:'));
+            }
+        } while ($cursor !== '0');
+        sort($scopes);
+        return array_values(array_unique($scopes));
+    }
+
+    /** Atomically append unseen task ids from one queue and remove the source. */
+    public function mergeTaskQueue(string $source, string $target): int {
+        if ($source === $target) { return 0; }
+        return (int)$this->client->command(
+            'EVAL', self::QUEUE_MERGE_LUA, '2',
+            self::NS . 'queue:' . $target, self::NS . 'queue:' . $source
+        );
     }
 }

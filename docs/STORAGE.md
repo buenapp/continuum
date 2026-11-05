@@ -13,7 +13,7 @@
 
 ## ValKey key schema (prefix `continuum:`)
 
-- `queue:{queue}` LIST — pending task ids
+- `queue:{scope}` LIST — pending task ids; scope is canonical lowercase
 - `task:{id}` HASH — claim hand-off payload snapshot
 - `lock:{name}` STR — advisory lock, value=owner, TTL enforced
 - `agent:{id}` HASH + `agents` SET — presence/heartbeat
@@ -31,6 +31,12 @@ a non-owner can never release someone else's lock.
   name), written only by `src/bin/identity-admin`.
 - `events` is append-only: every mutation logs
   `{agent, type, data, ts}` into it.
+
+Board document ids are `{canonical-lowercase-scope}/{key}` and task documents
+store the same canonical scope. Board keys, task ids and all non-scope
+identifiers retain their exact case. `bin/scope-migrate` merges legacy
+case-variant documents and queues; historical events are filtered
+case-insensitively but never rewritten.
 
 ## ArcadeDB schema
 

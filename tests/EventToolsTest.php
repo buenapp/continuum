@@ -31,7 +31,7 @@ class EventToolsTest extends TestCase {
         $claims = $this->tools($couch->replay())->coordination_event_log(type: 'task_claim')->getStructuredContent();
         $this->assertSame(2, $claims['count']);
         // filter by scope
-        $scoped = $this->tools($couch->replay())->coordination_event_log(scope: 'ops')->getStructuredContent();
+        $scoped = $this->tools($couch->replay())->coordination_event_log(scope: 'OPS')->getStructuredContent();
         $this->assertSame(['E3'], array_column($scoped['events'], 'id'));
         // since filter is an ISO-8601 lower bound
         $recent = $this->tools($couch->replay())->coordination_event_log(since: '2026-09-13T02:30:00.000Z')->getStructuredContent();
