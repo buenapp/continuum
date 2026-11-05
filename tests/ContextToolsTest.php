@@ -71,6 +71,24 @@ class ContextToolsTest extends TestCase {
         $this->assertSame('proj', $result->getStructuredContent()['scope']);
     }
 
+    public function testMixedCasePackReadsCanonicalTasksAndBoards(): void {
+        $couch = new FakeCouch([
+            ['code' => 200, 'body' => ['rows' => [
+                (object)['id' => 'T-1', 'doc' => (object)['title' => 'Unify scopes', 'scope' => 'HELIOFANE', 'status' => 'pending']],
+            ]]],
+            ['code' => 200, 'body' => ['rows' => [
+                (object)['id' => 'heliofane/Key', 'doc' => (object)['value' => 'shared', 'updated_by' => 'devin']],
+            ]]],
+            ['code' => 200, 'body' => ['rows' => []]],
+        ]);
+        $result = $this->tools($couch)->context_pack('Heliofane')->getStructuredContent();
+        $this->assertSame('heliofane', $result['scope']);
+        $this->assertStringContainsString('# Context Pack (scope: heliofane)', $result['pack']);
+        $this->assertStringContainsString('Unify scopes', $result['pack']);
+        $this->assertStringContainsString('## Board: heliofane', $result['pack']);
+        $this->assertStringContainsString('Key', $result['pack']);
+    }
+
     public function testBudgetTrimsAndReportsOmissions(): void {
         $long = str_repeat('x', 200);
         $rows = [];

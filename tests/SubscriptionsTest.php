@@ -84,11 +84,11 @@ class SubscriptionsTest extends TestCase {
 
     public function testBoardWritePublishesIndexEntryAndSnapshotUris(): void {
         $resp = new FakeRespClient([]);
-        $this->storage($resp, new FakeCouch([['code' => 201, 'body' => ['id' => 'global/k', 'rev' => '1-a']]]))
-            ->saveBoardEntry('global', 'k', ['value' => 1]);
+        $this->storage($resp, new FakeCouch([['code' => 201, 'body' => ['id' => 'global/CaseKey', 'rev' => '1-a']]]))
+            ->saveBoardEntry('GLOBAL', 'CaseKey', ['value' => 1]);
         $this->assertSame([[
             'continuum://board/index',
-            'continuum://board/global/k',
+            'continuum://board/global/CaseKey',
             'continuum://snapshot/global',
         ]], $this->publishedChanges($resp));
     }
@@ -120,6 +120,22 @@ class SubscriptionsTest extends TestCase {
         ]);
         $this->storage($resp, $couch)->appendLog('test-agent', 'blackboard_write', ['key' => 'k']);
         $this->assertSame([['continuum://events']], $this->publishedChanges($resp));
+    }
+
+    public function testFeedMatchesBoardScopesCaseInsensitivelyOnly(): void {
+        $channel = ValKeyStore::signalChannel(ContinuumStorage::CHANGES_CHANNEL);
+        $bulk = fn(string $s) => "\$" . strlen($s) . "\r\n" . $s . "\r\n";
+        $payload = json_encode(['uris' => ['continuum://board/HELIOFANE/CaseKey']]);
+        $confirmation = "*3\r\n" . $bulk('subscribe') . $bulk($channel) . ":1\r\n";
+        $frame = "*3\r\n" . $bulk('message') . $bulk($channel) . $bulk($payload);
+        $pair = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP);
+        fwrite($pair[1], $confirmation . $frame);
+
+        $feed = new SubscriptionFeed('127.0.0.1', 0, 0.05, new RespClient('127.0.0.1', 0, 5.0, $pair[0]));
+        $generator = $feed->stream(['resourceSubscriptions' => ['continuum://board/heliofane/CaseKey']]);
+        $this->assertTrue($generator->valid());
+        $this->assertSame('continuum://board/heliofane/CaseKey', $generator->current()['params']['uri']);
+        fclose($pair[1]);
     }
 
     public function testFeedMatchesSubscriptionUrisAndEndsOnSocketClose(): void {

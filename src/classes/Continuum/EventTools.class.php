@@ -22,10 +22,13 @@ class EventTools {
         outputSchema: self::LOG_SCHEMA
     )]
     public function coordination_event_log(?string $since = null, int $limit = 50, ?string $type = null, ?string $scope = null): ToolResult {
+        $scope = Scope::filter($scope);
         $events = [];
         foreach ($this->storage->listEventDocs() as $id => $doc) {
             if ($type !== null && ($doc['type'] ?? null) !== $type) { continue; }
-            if ($scope !== null && ($doc['data']['scope'] ?? null) !== $scope) { continue; }
+            $eventScope = isset($doc['data']['scope']) && is_string($doc['data']['scope'])
+                ? Scope::canonical($doc['data']['scope']) : null;
+            if ($scope !== null && $eventScope !== $scope) { continue; }
             if ($since !== null && ($doc['ts'] ?? '') < $since) { continue; }
             $doc['id'] = $id;
             $events[] = $doc;

@@ -74,7 +74,7 @@ class StatusTools {
 
         $boards = [];
         foreach ($this->storage->listBoardDocsAll() as $id => $_doc) {
-            $scope = explode('/', $id, 2)[0];
+            $scope = Scope::canonical(explode('/', $id, 2)[0]);
             $boards[$scope] = ($boards[$scope] ?? 0) + 1;
         }
 

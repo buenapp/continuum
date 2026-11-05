@@ -3,7 +3,27 @@
 Continuum follows semver. `UPGRADING.md` lists everything an operator must
 do when moving between versions; it ships with the code that requires it.
 
-## Unreleased (identity: registry + signed envelopes)
+## 0.5.1 (case-insensitive scopes)
+
+Board and task scopes are now canonically lowercase. Existing case-variant
+data must be merged during a maintenance window with writers paused:
+
+1. Upgrade the package, then run
+   `php /usr/local/www/continuum/bin/scope-migrate`.
+   This is a read-only audit using the installed `settings.ini`.
+2. Review the reported moves and conflicts. A same-key board collision with
+   different values requires a manual merge; the command changes nothing
+   when any conflict exists.
+3. With all MCP writes still paused, run
+   `php /usr/local/www/continuum/bin/scope-migrate --apply`.
+4. Run the dry-run command again. It must report that all scopes are
+   canonical before writers resume.
+
+The migration preserves board-key case, task ids, task/session bindings and
+append-only events. ValKey queue merges are atomic and do not duplicate task
+ids. Other identifiers and identity-certificate `scope` fields are unchanged.
+
+## 0.5.0 (identity: registry + signed envelopes)
 
 1. Create the CouchDB database `continuum_identities` (prefix
    configurable), alongside the databases from a fresh install.

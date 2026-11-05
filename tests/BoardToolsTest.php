@@ -41,6 +41,32 @@ class BoardToolsTest extends TestCase {
         $this->assertSame('blackboard_write', $couch->calls[3]['data']['type']);
     }
 
+    public function testMixedCaseScopeSharesOneCanonicalNamespace(): void {
+        $couch = new FakeCouch([
+            ['code' => 404, 'body' => null],
+            ['code' => 201, 'body' => ['id' => 'heliofane/Key', 'rev' => '1-a']],
+            ['code' => 200, 'body' => ['uuids' => ['ev1']]],
+            ['code' => 201, 'body' => ['id' => 'ev1', 'rev' => '1-b']],
+            ['code' => 200, 'body' => ['value' => 'unified', 'updated_by' => 'alice']],
+            ['code' => 200, 'body' => ['rows' => [
+                (object)['id' => 'heliofane/Key', 'doc' => null],
+                (object)['id' => 'other/Ignored', 'doc' => null],
+            ]]],
+        ]);
+        $tools = new BoardTools($this->storage($couch));
+        $written = $tools->blackboard_write('Key', 'unified', 'HELIOFANE')->getStructuredContent();
+        $this->assertSame('heliofane', $written['scope']);
+        $this->assertSame('continuum_boards/heliofane%2FKey', $couch->calls[0]['path']);
+        $this->assertSame('continuum_boards/heliofane%2FKey', $couch->calls[1]['path']);
+        $this->assertSame('heliofane', $couch->calls[3]['data']['data']['scope']);
+
+        $read = $tools->blackboard_read('Key', 'Heliofane')->getStructuredContent();
+        $this->assertSame('heliofane', $read['scope']);
+        $this->assertSame('unified', $read['value']);
+        $keys = $tools->blackboard_keys('HELIOFANE')->getStructuredContent();
+        $this->assertSame(['scope' => 'heliofane', 'keys' => ['Key']], $keys);
+    }
+
     public function testReadMissingThrows(): void {
         $couch = new FakeCouch([['code' => 404, 'body' => null]]);
         $this->expectException(\RuntimeException::class);

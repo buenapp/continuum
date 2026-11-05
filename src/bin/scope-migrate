@@ -1,0 +1,39 @@
+#!/usr/bin/env php
+<?php
+/**
+ * Merge case-variant board documents, task scopes and task queues.
+ * Default is a read-only audit; --apply performs the migration.
+ */
+
+chdir(__DIR__ . '/..');
+require_once 'includes/bootstrap.inc.php';
+
+use Continuum\Storage\ContinuumStorage;
+
+$args = array_slice($argv, 1);
+if (count($args) > 1 || ($args !== [] && $args[0] !== '--apply')) {
+    fwrite(STDERR, "usage: scope-migrate [--apply]\n");
+    exit(2);
+}
+$apply = $args === ['--apply'];
+
+try {
+    $report = ContinuumStorage::fromSettings($SETTINGS)->migrateScopes($apply);
+} catch (\Throwable $e) {
+    fwrite(STDERR, "scope-migrate: {$e->getMessage()}\n");
+    exit(1);
+}
+
+echo json_encode($report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES), "\n";
+if ($report['conflicts'] !== []) {
+    fwrite(STDERR, "scope-migrate: conflicts found; no documents or queues were changed\n");
+    exit(1);
+}
+$changes = count($report['boards']) + count($report['tasks']) + count($report['queues']);
+if (!$apply) {
+    fwrite(STDERR, $changes === 0
+        ? "scope-migrate: all scopes are canonical\n"
+        : "scope-migrate: dry run found {$changes} items; rerun with --apply while writes are paused\n");
+} else {
+    fwrite(STDERR, "scope-migrate: applied {$changes} changes; rerun the dry-run audit to confirm a no-op\n");
+}

@@ -45,10 +45,10 @@ class TaskToolsTest extends TestCase {
     public function testListReturnsDualFormatWithPhorgeId(): void {
         $couch = new FakeCouch([
             ['code' => 200, 'body' => ['rows' => [
-                (object)['id' => 'T-1', 'doc' => (object)['title' => 'Real BPE tokenizer', 'scope' => 'proj', 'status' => 'pending', 'priority' => 2, 'phorge_task_id' => 'T123', 'updated_at' => '2026-09-13T02:00:00Z']],
+                (object)['id' => 'T-1', 'doc' => (object)['title' => 'Real BPE tokenizer', 'scope' => 'PrOj', 'status' => 'pending', 'priority' => 2, 'phorge_task_id' => 'T123', 'updated_at' => '2026-09-13T02:00:00Z']],
             ]]],
         ]);
-        $result = (new TaskTools($this->storage($couch)))->task_list('proj');
+        $result = (new TaskTools($this->storage($couch)))->task_list('PROJ');
         $data = $result->getStructuredContent();
         $this->assertSame(1, $data['count']);
         $this->assertSame('T123', $data['tasks'][0]['phorge_task_id']);
@@ -66,7 +66,7 @@ class TaskToolsTest extends TestCase {
             ['code' => 200, 'body' => ['uuids' => ['ev1']]],                        // _uuids (event)
             ['code' => 201, 'body' => ['id' => 'ev1', 'rev' => '1-b']],             // PUT event
         ]);
-        $result = (new TaskTools($this->storage($couch, $resp, $arcade)))->task_create('Demo', 'proj', dependsOn: ['T-PARENT']);
+        $result = (new TaskTools($this->storage($couch, $resp, $arcade)))->task_create('Demo', 'PrOj', dependsOn: ['T-PARENT']);
         $data = $result->getStructuredContent();
         $this->assertMatchesRegularExpression('/^T-[0-9A-F]{8}$/', $data['task']);
         $this->assertSame('pending', $data['status']);

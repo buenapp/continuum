@@ -69,4 +69,7 @@ engine logs. When a CouchDB/ArcadeDB falls over with `eacces` despite
    changes.
 3. `phpunit` on the exact tree under test.
 4. `bin/smoke-test` (with `--key2`) against the QA `pkg`-installed copy.
-5. Only then tag.
+5. For 0.5.1, seed case-split board/task/queue fixtures, verify the
+   `scope-migrate` dry run and conflict refusal, apply, and verify a no-op
+   rerun plus mixed-case reads.
+6. Only then tag.

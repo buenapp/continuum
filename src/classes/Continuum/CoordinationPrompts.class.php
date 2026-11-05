@@ -39,7 +39,7 @@ class CoordinationPrompts {
         ]
     )]
     public function session_bootstrap(?string $scope = null): array {
-        $scope = ($scope === null || $scope === '') ? 'global' : $scope;
+        $scope = Scope::canonical($scope);
         return [
             $this->userMessage(
                 "Bootstrap this session on the Continuum coordination board (you are agent '" . CONTINUUM_AGENT . "'):\n"
@@ -73,7 +73,7 @@ class CoordinationPrompts {
         ]
     )]
     public function claim_and_serve(?string $scope = null): array {
-        $scope = ($scope === null || $scope === '') ? 'global' : $scope;
+        $scope = Scope::canonical($scope);
         return [$this->userMessage(
             "Find and serve work on the Continuum board (scope '{$scope}'):\n"
             . "1. Read continuum://tasks (or task_list with scope '{$scope}') and pick the highest-priority pending task you are suited to.\n"
@@ -150,10 +150,10 @@ class CoordinationPrompts {
         $scopes = ['global' => true];
         foreach (array_keys($this->storage->listBoardDocsAll()) as $id) {
             $scope = explode('/', (string)$id, 2)[0] ?? null;
-            if ($scope !== null && $scope !== '') { $scopes[$scope] = true; }
+            if ($scope !== null && $scope !== '') { $scopes[Scope::canonical($scope)] = true; }
         }
         foreach ($this->storage->listTaskDocs() as $doc) {
-            $scope = $doc['scope'] ?? 'global';
+            $scope = Scope::canonical($doc['scope'] ?? null);
             $scopes[$scope] = true;
         }
         $list = array_keys($scopes);

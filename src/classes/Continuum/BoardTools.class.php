@@ -19,7 +19,7 @@ class BoardTools {
     public function __construct(private ContinuumStorage $storage) {}
 
     private function scopeOf(?string $scope): string {
-        return ($scope === null || $scope === '') ? 'global' : $scope;
+        return Scope::canonical($scope);
     }
 
     /**
@@ -149,6 +149,8 @@ class BoardTools {
             throw new \RuntimeException("no board entry {$board}/{$key}");
         }
         $author = $entry['updated_by'] ?? null;
+        // Agent identities stay case-sensitive; canonicalization must not
+        // grant a case-variant identity owner-delete rights.
         if ($author !== CONTINUUM_AGENT && $board !== CONTINUUM_AGENT) {
             throw new \RuntimeException("not permitted: entry {$board}/{$key} is owned by " . ($author ?? 'unknown'));
         }

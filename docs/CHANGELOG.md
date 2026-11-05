@@ -4,7 +4,19 @@ All notable behavior changes ship in this file alongside the code that
 introduces them (see AGENTS.md). Version parity is enforced between
 `APPLICATION_VERSION`, the FreeBSD port's `DISTVERSION`, and the git tag.
 
-## Unreleased
+## 0.5.1 (2026-11-05)
+
+### Fixed
+
+- Board and task scopes are now case-insensitive and canonically lowercase
+  at every tool, resource, storage, event-filter and subscription boundary
+  ([issue #16](https://pacyworld.dev/buenapp/continuum/issues/16)).
+  `HELIOFANE`, `Heliofane` and `heliofane` therefore address one namespace;
+  board keys, task ids, session ids, agent ids and lock names remain exact.
+- Added `bin/scope-migrate` to audit and merge existing case-split CouchDB
+  documents and ValKey task queues. It defaults to a dry run, refuses
+  same-key value conflicts before mutating anything, preserves task ids and
+  queue order, deduplicates queued task ids, and supports no-op reruns.
 
 ## 0.5.0 (2026-10-22)
 

@@ -125,10 +125,13 @@ $prompts = array_column(rpc('prompts/list', [], $KEY)['result']['prompts'] ?? []
 check('prompts/list has the four coordination prompts', count(array_intersect(['session_bootstrap', 'claim_and_serve', 'handoff', 'milestone_sync'], $prompts)) === 4);
 
 // --- 5. task lifecycle
-$create = rpc('tools/call', ['name' => 'task_create', 'arguments' => ['title' => "Smoke task {$marker}", 'priority' => 3]], $KEY);
+$create = rpc('tools/call', ['name' => 'task_create', 'arguments' => ['title' => "Smoke task {$marker}", 'scope' => 'SmOkE', 'priority' => 3]], $KEY);
 $taskId = toolData($create)['task'] ?? null;
 check('task_create', is_string($taskId), (string)$taskId);
+check('task_create canonicalizes mixed-case scope', (toolData($create)['scope'] ?? '') === 'smoke');
 check('task_create text block is human-readable', str_contains($create['result']['content'][0]['text'] ?? '', "Smoke task {$marker}"));
+$scopedTasks = rpc('tools/call', ['name' => 'task_list', 'arguments' => ['scope' => 'SMOKE']], $KEY);
+check('task_list matches scope case-insensitively', in_array($taskId, array_column(toolData($scopedTasks)['tasks'] ?? [], 'task'), true));
 
 if ($taskId !== null) {
     $card = rpc('resources/read', ['uri' => "continuum://tasks/{$taskId}"], $KEY);
@@ -147,6 +150,19 @@ if ($taskId !== null) {
 }
 
 // --- 6. board round-trip via tools + resources
+$mixedWrite = rpc('tools/call', ['name' => 'blackboard_write', 'arguments' => [
+    'scope' => 'SMOKE', 'key' => $marker, 'value' => 'mixed-case',
+]], $KEY);
+$mixedRead = rpc('resources/read', ['uri' => "continuum://board/smoke/{$marker}"], $KEY);
+$mixedBody = json_decode($mixedRead['result']['contents'][0]['text'] ?? '', true) ?? [];
+check('board scope is case-insensitive across tools and resources',
+    empty($mixedWrite['result']['isError']) && ($mixedBody['scope'] ?? '') === 'smoke'
+    && ($mixedBody['value'] ?? '') === 'mixed-case');
+$mixedSnapshot = rpc('resources/read', ['uri' => 'continuum://snapshot/SmOkE'], $KEY);
+check('snapshot resource canonicalizes scope', str_contains(
+    $mixedSnapshot['result']['contents'][0]['text'] ?? '', '"scope":"smoke"'
+));
+
 $write = rpc('tools/call', ['name' => 'blackboard_write', 'arguments' => ['key' => $marker, 'value' => ['hi' => 'sailor']]], $KEY);
 $read = rpc('resources/read', ['uri' => "continuum://board/global/{$marker}"], $KEY);
 $readBody = json_decode($read['result']['contents'][0]['text'] ?? '', true) ?? [];

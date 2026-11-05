@@ -39,7 +39,7 @@ class PromptsTest extends TestCase {
 
     public function testBootstrapPromptNamesAgentAndLinksPack(): void {
         $result = $this->call($this->server(new FakeCouch([])), 'prompts/get', [
-            'name' => 'session_bootstrap', 'arguments' => ['scope' => 'proj'],
+            'name' => 'session_bootstrap', 'arguments' => ['scope' => 'PrOj'],
         ])['result'];
         $this->assertCount(2, $result['messages']);
         $text = $result['messages'][0]['content']['text'];
@@ -78,7 +78,10 @@ class PromptsTest extends TestCase {
 
     public function testScopeCompletionFromBoardsAndTasks(): void {
         $couch = new FakeCouch([
-            ['code' => 200, 'body' => ['rows' => [(object)['id' => 'ops/key', 'doc' => (object)[]]]]],
+            ['code' => 200, 'body' => ['rows' => [
+                (object)['id' => 'OPS/key', 'doc' => (object)[]],
+                (object)['id' => 'ops/other', 'doc' => (object)[]],
+            ]]],
             ['code' => 200, 'body' => $this->taskRows()],
         ]);
         $result = $this->call($this->server($couch), 'completion/complete', [
@@ -106,7 +109,7 @@ class PromptsTest extends TestCase {
         $result = $this->call($this->server($couch), 'completion/complete', [
             'ref' => ['type' => 'ref/resource', 'uri' => 'continuum://board/{scope}/{key}'],
             'argument' => ['name' => 'key', 'value' => 'road'],
-            'context' => ['arguments' => ['scope' => 'proj']],
+            'context' => ['arguments' => ['scope' => 'PROJ']],
         ])['result'];
         $this->assertSame(['roadmap', 'roadster'], $result['completion']['values']);
     }
