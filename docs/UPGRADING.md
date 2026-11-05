@@ -3,6 +3,12 @@
 Continuum follows semver. `UPGRADING.md` lists everything an operator must
 do when moving between versions; it ships with the code that requires it.
 
+## 0.5.2
+
+No additional operator action. Upgrades from 0.5.0 or earlier must still run
+the 0.5.1 scope migration below. This release also fixes `blackboard_keys`
+result encoding when another scope appears first in CouchDB row order.
+
 ## 0.5.1 (case-insensitive scopes)
 
 Board and task scopes are now canonically lowercase. Existing case-variant

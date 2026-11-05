@@ -264,10 +264,10 @@ class ContinuumStorage implements ContinuumStorageInterface {
     }
     public function listBoardKeys(string $board): array {
         $board = Scope::canonical($board);
-        return array_map(
+        return array_values(array_map(
             fn($id) => preg_replace('#^' . preg_quote($board . '/', '#') . '#', '', $id),
             array_filter($this->couch->listIds('boards'), fn($id) => str_starts_with($id, $board . '/'))
-        );
+        ));
     }
     public function deleteBoardEntry(string $board, string $key, string $rev): void {
         $board = Scope::canonical($board);
