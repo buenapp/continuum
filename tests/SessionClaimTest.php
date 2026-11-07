@@ -112,6 +112,14 @@ class SessionClaimTest extends TestCase {
         $this->assertStringContainsString('is not registered', $claim['reason']);
     }
 
+    public function testRegistryFailureIsDeclaredNotAnError(): void {
+        $claim = SessionClaim::resolve('sess-42', $this->pinnedCert(), function (): ?array {
+            throw new \RuntimeException('registry unavailable');
+        }, 'devin');
+        $this->assertSame('declared', $claim['status']);
+        $this->assertSame('identity registry: registry unavailable', $claim['reason']);
+    }
+
     public function testRevokedWorkstreamIsDeclared(): void {
         $claim = SessionClaim::resolve('sess-42', $this->pinnedCert(), $this->registry('devin', self::WS_PUB, 'revoked'), 'devin');
         $this->assertSame('declared', $claim['status']);

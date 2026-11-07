@@ -42,8 +42,10 @@ introduces them (see AGENTS.md). Version parity is enforced between
   `message_lease` reports `session_proof` for a scoped read and `null`
   for an untargeted one. A certificate delegated by a different
   workstream than the caller's, or one that is expired, tampered,
-  unregistered or revoked, downgrades the claim instead of failing the
-  request. Continuum enforces no minimum level; consumers decide. See
+  unregistered, revoked or unavailable because the registry lookup fails,
+  downgrades the claim instead of failing the request. Claim classification
+  completes before the inbox lease mutation. Continuum enforces no minimum
+  level; consumers decide. See
   `docs/IDENTITY.md` 12.
 
 ### Fixed

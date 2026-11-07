@@ -189,16 +189,16 @@ class MessageTools {
         if (!$untargeted && $session === null) {
             throw new \InvalidArgumentException('untargeted=false requires a declared session (params._meta.session)');
         }
-        $lease = $this->storage->inboxLease(CONTINUUM_AGENT, $session, $limit, $ttlSeconds, $untargeted);
-        $messages = $lease['messages'];
-        // A scoped read is only as trustworthy as the session claim behind
-        // it, so report the claim level alongside the messages (docs/IDENTITY.md 12).
+        // Resolve before leasing so claim classification cannot fail after
+        // the inbox mutation and strand messages without a returned lease id.
         $claim = $session === null ? null : SessionClaim::resolve(
             $session,
             SessionContext::declaredCert(),
             fn(string $ws): ?array => $this->storage->loadIdentity($ws),
             CONTINUUM_AGENT,
         );
+        $lease = $this->storage->inboxLease(CONTINUUM_AGENT, $session, $limit, $ttlSeconds, $untargeted);
+        $messages = $lease['messages'];
         $this->storage->appendLog(CONTINUUM_AGENT, 'message_lease', [
             'lease' => $lease['id'], 'session' => $session, 'count' => count($messages), 'ttl' => $ttlSeconds,
             'session_proof' => $claim['status'] ?? null,

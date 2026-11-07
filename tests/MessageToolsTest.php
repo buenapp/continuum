@@ -209,6 +209,24 @@ class MessageToolsTest extends TestCase {
         $this->assertSame('declared', $data['session_proof']);
     }
 
+    public function testLeaseRegistryFailureStillReturnsLeaseAsDeclared(): void {
+        \Continuum\SessionContext::setDeclared('sess-a');
+        \Continuum\SessionContext::setDeclaredCert($this->signedCertFor());
+        $storage = new class(
+            new ValKeyStore($this->scopedLeaseResp()),
+            new FakeCouch([['code' => 200, 'body' => ['uuids' => ['e']]], ['code' => 201, 'body' => []]]),
+            new FakeArcade()
+        ) extends ContinuumStorage {
+            public function loadIdentity(string $workstream): ?array {
+                throw new \RuntimeException('registry unavailable');
+            }
+        };
+        $data = (new MessageTools($storage))->message_lease(10, 60)->getStructuredContent();
+        $this->assertSame('declared', $data['session_proof']);
+        $this->assertSame(1, $data['count']);
+        $this->assertNotEmpty($data['lease']);
+    }
+
     public function testUntargetedLeaseReportsNoClaimLevel(): void {
         $data = $this->tools($this->scopedLeaseResp())->message_lease(10, 60)->getStructuredContent();
         $this->assertNull($data['session_proof']);

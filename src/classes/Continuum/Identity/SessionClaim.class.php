@@ -53,7 +53,11 @@ class SessionClaim {
         if ($parsed['workstream'] !== $workstream) {
             return self::declared("cert belongs to workstream '{$parsed['workstream']}', not '{$workstream}'");
         }
-        $record = $loadIdentity($parsed['workstream']);
+        try {
+            $record = $loadIdentity($parsed['workstream']);
+        } catch (\Throwable $e) {
+            return self::declared('identity registry: ' . $e->getMessage());
+        }
         if (!is_array($record)) {
             return self::declared("workstream '{$parsed['workstream']}' is not registered");
         }
