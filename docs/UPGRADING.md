@@ -3,6 +3,28 @@
 Continuum follows semver. `UPGRADING.md` lists everything an operator must
 do when moving between versions; it ships with the code that requires it.
 
+## 0.5.3
+
+No storage migration is required. Session-targeted sends now fail with
+`session_inactive` when the recipient has no live presence for that exact
+session, including first-use and expired-final-session cases. Recipients
+must call `agent_register` or `agent_heartbeat` for the declared session;
+untargeted sends and first-use untargeted delivery are unchanged.
+
+Existing stranded messages need no rewrite: `message_lease` makes an
+inactive target's unexpired messages available to another session of the
+same identity once any active message lease expires. Signed and attested
+envelopes retain their original target and remain verifiable.
+
+`agent_register` gains an optional `sessionLabel`, distinct from the
+identity-level human `label`. `message_send(sessionLabel=...)` selects the
+newest live registration with that label and returns the resolved session.
+`board_status` adds structured inbox summaries and per-session depth.
+
+The 0.5.3 session-claim support is additive. Presenting
+`params._meta.session_cert` can prove a declared session; without it,
+claims remain declared and no identity provisioning is required.
+
 ## 0.5.2
 
 No additional operator action. Upgrades from 0.5.0 or earlier must still run

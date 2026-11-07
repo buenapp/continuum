@@ -69,4 +69,101 @@ class ValKeyStoreTest extends TestCase {
         $this->assertContains('pid', $fake->calls[1]);
         $this->assertContains('42', $fake->calls[1]);
     }
+
+    public function testInboxLeaseAdoptsInactiveTargetWithoutRewritingEnvelope(): void {
+        $now = time();
+        $original = [
+            'id' => 'M-OLD', 'from' => 'alice', 'body' => 'recover', 'session' => 'old',
+            'sig' => 'c2ln', 'cert' => '{"session":"old"}',
+        ];
+        $fake = new FakeRespClient([
+            'OK',                       // WATCH inbox
+            [json_encode($original), json_encode(['id' => 'M-OPEN', 'body' => 'untargeted'])],
+            'OK', 'OK',                 // WATCH session set + old target hash
+            ['old', 'new'],             // SMEMBERS agent-sessions:agent-a
+            [],                         // HGETALL old: presence expired
+            1,                          // SREM old ghost
+            ['session', 'new', 'heartbeat', '1'], // HGETALL new: live
+            'OK', 'QUEUED', 'QUEUED', [1, 2], // MULTI, DEL, RPUSH, EXEC
+        ]);
+        $result = (new ValKeyStore($fake))->inboxLease('agent-a', 'new', 10, 60, $now, false);
+        $this->assertSame(1, count($result['messages']));
+        $this->assertSame($original['session'], $result['messages'][0]['session']);
+        $this->assertSame($original['sig'], $result['messages'][0]['sig']);
+        $this->assertSame($original['cert'], $result['messages'][0]['cert']);
+        $this->assertSame($result['id'], $result['messages'][0]['lease']);
+        $this->assertSame('SREM', $fake->calls[6][0]);
+    }
+
+    public function testInactiveTargetWaitsForActiveMessageLeaseExpiry(): void {
+        $now = time();
+        $entry = json_encode(['id' => 'M-OLD', 'session' => 'old', 'lease' => 'L-ACTIVE', 'lease_until' => $now + 60]);
+        $fake = new FakeRespClient([
+            'OK', [$entry],             // WATCH, LRANGE
+            'OK', 'OK',                 // WATCH session set + old target hash
+            [],                         // SMEMBERS agent-sessions: no live target
+            'OK',                       // UNWATCH: no changes
+        ]);
+        $result = (new ValKeyStore($fake))->inboxLease('agent-a', 'new', 10, 60, $now, false);
+        $this->assertSame([], $result['messages']);
+        $this->assertSame('UNWATCH', $fake->calls[5][0]);
+    }
+
+    public function testExpiredMessageIsNotRecovered(): void {
+        $now = time();
+        $entry = json_encode(['id' => 'M-OLD', 'session' => 'old', 'expires' => gmdate('c', $now - 1)]);
+        $fake = new FakeRespClient([
+            'OK', [$entry],             // WATCH, LRANGE
+            'OK', 'OK',                 // WATCH session set + old target hash
+            [],                         // SMEMBERS agent-sessions
+            'OK', 'QUEUED', [0],        // MULTI, DEL, EXEC (expired entry dropped)
+        ]);
+        $result = (new ValKeyStore($fake))->inboxLease('agent-a', 'new', 10, 60, $now, false);
+        $this->assertSame([], $result['messages']);
+    }
+
+    public function testTargetHeartbeatDuringLeaseInvalidatesOrphanAdoption(): void {
+        $now = time();
+        $entry = json_encode(['id' => 'M-OLD', 'session' => 'old']);
+        $fake = new FakeRespClient([
+            'OK', [$entry], 'OK', 'OK', [],       // attempt 1: target inactive
+            'OK', 'QUEUED', 'QUEUED', null,       // EXEC fails after target heartbeats
+            'OK', [$entry], 'OK', 'OK',
+            ['old'], ['session', 'old', 'heartbeat', (string)$now], // attempt 2: live
+            'OK',                                 // UNWATCH: no adoption
+        ]);
+        $result = (new ValKeyStore($fake))->inboxLease('agent-a', 'new', 10, 60, $now, false);
+        $this->assertSame([], $result['messages']);
+        $this->assertSame('UNWATCH', $fake->calls[15][0]);
+    }
+
+    public function testZeroSessionIdIsNotTreatedAsUntargeted(): void {
+        $now = time();
+        $targeted = json_encode(['id' => 'M-ZERO', 'session' => '0']);
+        $open = json_encode(['id' => 'M-OPEN']);
+        $fake = new FakeRespClient([
+            'OK', [$targeted, $open],           // inboxLease: WATCH, LRANGE
+            'OK', 'OK', ['0'], ['heartbeat', '1'],
+            'OK', 'QUEUED', 'QUEUED', [1, 2],   // only open is leased
+            'OK', [$targeted, $open],           // inboxPull: WATCH, LRANGE
+            'OK', 'QUEUED', 'QUEUED', [1, 1],   // only open is pulled
+        ]);
+        $store = new ValKeyStore($fake);
+        $leased = $store->inboxLease('agent-a', 'new', 10, 60, $now, true);
+        $this->assertSame(['M-OPEN'], array_column($leased['messages'], 'id'));
+        $pulled = $store->inboxPull('agent-a', 10);
+        $this->assertSame(['M-OPEN'], array_column($pulled, 'id'));
+    }
+
+    public function testOrphanRecoveryCannotCrossInboxIdentity(): void {
+        $fake = new FakeRespClient([
+            'OK', [],                   // WATCH, LRANGE empty agent-b inbox
+            'OK', [],                   // WATCH + SMEMBERS agent-sessions:agent-b
+        ]);
+        $result = (new ValKeyStore($fake))->inboxLease('agent-b', 'new', 10, 60, time(), false);
+        $this->assertSame([], $result['messages']);
+        foreach ($fake->calls as $call) {
+            $this->assertNotContains('continuum:inbox:agent-a', $call);
+        }
+    }
 }

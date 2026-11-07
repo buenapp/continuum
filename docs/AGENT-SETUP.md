@@ -105,7 +105,9 @@ Continuum is the coordination surface, not a chat log. Per session
 with argument autocompletion for scopes, task ids, and board keys):
 
 1. **Register + heartbeat**: `agent_register` once (capabilities,
-   label), then `agent_heartbeat(working_on=...)` whenever focus changes.
+   identity label, optional `sessionLabel` for stable message routing),
+   then `agent_heartbeat(working_on=...)` whenever focus changes. The
+   declared session must stay live for session-targeted sends.
 2. **Pull context before acting**: `context_pack(scope, task_id?)` gives
    the budget-curated brief — open tasks, recent board entries, agent
    presence. Prefer it over raw scans. Add a `query` term for relevance
@@ -129,9 +131,10 @@ with argument autocompletion for scopes, task ids, and board keys):
    turns; `message_send` / `message_broadcast` for coordination.
    Clients that declare `params._meta.session` should prefer the
    non-destructive path: `message_lease` returns the session's messages
-   plus untargeted ones and holds them until the lease expires;
-   `message_ack` deletes the processed ids. `message_inbox_pull` never
-   touches session-addressed mail.
+   plus untargeted ones and holds them until the lease expires. It also
+   recovers inactive-session targets for the same identity without
+   changing their signed envelopes. `message_ack` deletes the processed
+   ids. `message_inbox_pull` never touches session-addressed mail.
 7. **Handoff, don't abandon**: `task_handoff(task_id, summary, ...)`
    writes the structured handoff document, releases your claim, and
    re-queues the task.

@@ -187,15 +187,21 @@ if ($taskId !== null) {
 }
 
 // --- 9. targeted messaging: message ids, session scoping, lease/ack
-$reg = rpc('tools/call', ['name' => 'agent_register', 'arguments' => []], $KEY);
-$self = toolData($reg)['agent'] ?? null;
 $sessionId = $marker . '-sess';
+$reg = rpcModern('tools/call', ['name' => 'agent_register', 'arguments' => ['sessionLabel' => 'smoke-reviewer'], '_meta' => ['session' => $sessionId]], $KEY, 'agent_register');
+$self = toolData($reg)['agent'] ?? null;
 $send = rpc('tools/call', ['name' => 'message_send', 'arguments' => [
-    'to' => $self ?? 'nobody', 'body' => "targeted {$marker}", 'session' => $sessionId,
+    'to' => $self ?? 'nobody', 'body' => "targeted {$marker}", 'sessionLabel' => 'smoke-reviewer',
     'kind' => 'directive', 'priority' => 'urgent',
 ]], $KEY);
 $messageId = toolData($send)['id'] ?? null;
-check('message_send targets a session and returns an id', is_string($self) && is_string($messageId), (string)$messageId);
+check('message_send targets a session label and returns an id', is_string($self) && is_string($messageId), (string)$messageId);
+check('sessionLabel resolves to the registered live session', (toolData($send)['session'] ?? '') === $sessionId);
+$deadSend = rpc('tools/call', ['name' => 'message_send', 'arguments' => [
+    'to' => $self ?? 'nobody', 'body' => 'must not strand', 'session' => $sessionId . '-dead',
+]], $KEY);
+check('dead session send is refused', !empty($deadSend['result']['isError'])
+    && str_contains($deadSend['result']['content'][0]['text'] ?? '', 'session_inactive'));
 
 $legacyPull = rpc('tools/call', ['name' => 'message_inbox_pull', 'arguments' => []], $KEY);
 check('session-targeted mail is invisible to the legacy pull',

@@ -185,6 +185,10 @@ class ContinuumStorage implements ContinuumStorageInterface {
     public function inboxDrain(string $agentId): array {
         return $this->valkey->inboxDrain($agentId);
     }
+    /** Non-destructive inbox counts by target, including inactive sessions. */
+    public function inboxSummary(string $agentId): array {
+        return $this->valkey->inboxSummary($agentId);
+    }
 
     // --- Durable, MVCC-aware
     public function savePlan(string $planId, array $plan, ?string $rev = null): array {

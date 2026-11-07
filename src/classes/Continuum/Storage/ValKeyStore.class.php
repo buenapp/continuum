@@ -177,7 +177,7 @@ class ValKeyStore {
             $taken = [];
             foreach ($entries as $e) {
                 if (self::isExpired($e, $now)) { continue; }
-                if (count($taken) < $limit && !self::leaseActive($e, $now) && empty($e['session'])) {
+                if (count($taken) < $limit && !self::leaseActive($e, $now) && (!isset($e['session']) || $e['session'] === '')) {
                     $taken[] = self::stripLease($e);
                     continue;
                 }
@@ -201,15 +201,17 @@ class ValKeyStore {
     public function inboxLease(string $agentId, ?string $session, int $limit, int $ttlSeconds, int $now, bool $includeUntargeted = true): array {
         $leaseId = 'L-' . strtoupper(bin2hex(random_bytes(4)));
         $until = $now + $ttlSeconds;
-        $messages = $this->inboxRewrite($agentId, function (array $entries) use ($session, $limit, $now, $until, $leaseId, $includeUntargeted) {
+        $messages = $this->inboxRewrite($agentId, function (array $entries, array $liveSessions) use ($session, $limit, $now, $until, $leaseId, $includeUntargeted) {
             $kept = [];
             $taken = [];
             foreach ($entries as $e) {
                 if (self::isExpired($e, $now)) { continue; }
                 if (self::leaseActive($e, $now)) { $kept[] = $e; continue; }
                 $e = self::stripLease($e); // a dead lease returns the message
-                $targeted = ($session !== null && ($e['session'] ?? null) === $session);
-                $eligible = $includeUntargeted ? ($targeted || empty($e['session'])) : $targeted;
+                $target = $e['session'] ?? null;
+                $targeted = ($session !== null && $target === $session);
+                $inactiveTarget = is_string($target) && $target !== '' && !isset($liveSessions[$target]);
+                $eligible = $targeted || $inactiveTarget || ($includeUntargeted && (!isset($e['session']) || $e['session'] === ''));
                 if ($eligible && count($taken) < $limit) {
                     $e['lease'] = $leaseId;
                     $e['lease_until'] = $until;
@@ -218,7 +220,7 @@ class ValKeyStore {
                 $kept[] = $e;
             }
             return [$kept, $taken];
-        });
+        }, true);
         if ($messages === null) {
             throw new \RuntimeException("inbox for {$agentId} changed concurrently; retry the lease");
         }
@@ -253,16 +255,33 @@ class ValKeyStore {
      * $transform receives the decoded entries and returns [kept, result].
      * The list is replaced by `kept` inside WATCH/MULTI/EXEC, so a
      * concurrent writer loses nothing: EXEC then reports the race and we
-     * re-read once before giving up with null. Unchanged lists (no
-     * reaping, nothing selected) skip the write entirely.
+     * re-read once before giving up with null. With $trackSessions, target
+     * presence hashes are watched too, preventing adoption when a target
+     * becomes live during the rewrite. Unchanged lists skip the write.
      */
-    private function inboxRewrite(string $agentId, callable $transform): ?array {
+    private function inboxRewrite(string $agentId, callable $transform, bool $trackSessions = false): ?array {
         $key = self::NS . 'inbox:' . $agentId;
+        $sessionSet = self::NS . 'agent-sessions:' . $agentId;
         for ($attempt = 0; $attempt < 2; $attempt++) {
             $this->client->command('WATCH', $key);
             $raw = $this->client->command('LRANGE', $key, '0', '-1') ?: [];
             $entries = array_map(fn($j) => json_decode($j, true) ?? [], $raw);
-            [$kept, $result] = $transform($entries);
+            $liveSessions = [];
+            if ($trackSessions) {
+                // Presence is part of the same optimistic transaction: a
+                // target that heartbeats before EXEC invalidates the rewrite.
+                $targets = [];
+                foreach ($entries as $entry) {
+                    $target = $entry['session'] ?? null;
+                    if (is_string($target) && $target !== '') { $targets[$target] = true; }
+                }
+                $this->client->command('WATCH', $sessionSet);
+                foreach (array_keys($targets) as $target) {
+                    $this->client->command('WATCH', self::NS . 'session:' . $agentId . ':' . $target);
+                }
+                $liveSessions = $this->sessionRecords($agentId);
+            }
+            [$kept, $result] = $transform($entries, $liveSessions);
             if ($kept === $entries) {
                 $this->client->command('UNWATCH');
                 return $result;
@@ -344,6 +363,42 @@ class ValKeyStore {
 
     public function inboxDepth(string $agentId): int {
         return (int)$this->client->command('LLEN', self::NS . 'inbox:' . $agentId);
+    }
+
+    /** Non-destructive inbox counts by target, including inactive sessions. */
+    public function inboxSummary(string $agentId): array {
+        $now = time();
+        $liveSessions = $this->sessionRecords($agentId);
+        $summary = [
+            'depth' => 0,
+            'untargeted' => 0,
+            'sessions' => [],
+            'inactive_sessions' => [],
+            'leased' => 0,
+            'expired' => 0,
+        ];
+        $entries = $this->client->command('LRANGE', self::NS . 'inbox:' . $agentId, '0', '-1') ?: [];
+        foreach ($entries as $json) {
+            $entry = json_decode($json, true) ?? [];
+            if (self::isExpired($entry, $now)) {
+                $summary['expired']++;
+                continue;
+            }
+            $summary['depth']++;
+            if (self::leaseActive($entry, $now)) { $summary['leased']++; }
+            $target = $entry['session'] ?? null;
+            if (!is_string($target) || $target === '') {
+                $summary['untargeted']++;
+                continue;
+            }
+            $summary['sessions'][$target] = ($summary['sessions'][$target] ?? 0) + 1;
+            if (!isset($liveSessions[$target])) {
+                $summary['inactive_sessions'][$target] = ($summary['inactive_sessions'][$target] ?? 0) + 1;
+            }
+        }
+        ksort($summary['sessions']);
+        ksort($summary['inactive_sessions']);
+        return $summary;
     }
 
     /** Count of board-visible sectors: pending tasks per known queue. */
