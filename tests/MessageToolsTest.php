@@ -153,6 +153,9 @@ class MessageToolsTest extends TestCase {
                 json_encode(['id' => 'M-A4', 'from' => 'x', 'body' => 'dead-lease', 'session' => 'sess-1', 'lease' => 'L-OLD', 'lease_until' => $now - 5]),
                 json_encode(['id' => 'M-A5', 'from' => 'x', 'body' => 'live-lease', 'lease' => 'L-LIVE', 'lease_until' => $now + 60]),
             ],
+            'OK', 'OK', 'OK',        // WATCH session set + both target hashes
+            ['sess-2'],              // SMEMBERS agent-sessions (other live target)
+            ['heartbeat', '1'],      // HGETALL session:sess-2
             'OK', 'QUEUED', 'QUEUED', [1, 5],
         ]);
         $result = $this->tools($resp)->message_lease(10, 60);
@@ -161,8 +164,8 @@ class MessageToolsTest extends TestCase {
         $this->assertSame(3, $data['count']);
         $this->assertSame(['open', 'for-s1', 'dead-lease'], array_column($data['messages'], 'body'));
         // the stored rewrite marks exactly the leased three, in list order
-        $this->assertSame('RPUSH', $resp->calls[4][0]);
-        $kept = array_map(fn($j) => json_decode($j, true), array_slice($resp->calls[4], 2));
+        $this->assertSame('RPUSH', $resp->calls[9][0]);
+        $kept = array_map(fn($j) => json_decode($j, true), array_slice($resp->calls[9], 2));
         $byId = array_column($kept, null, 'id');
         $this->assertSame($data['lease'], $byId['M-A1']['lease']);
         $this->assertSame($data['lease'], $byId['M-A2']['lease']);
@@ -178,8 +181,10 @@ class MessageToolsTest extends TestCase {
     /** One scoped lease read scripted for a single candidate message. */
     private function scopedLeaseResp(): FakeRespClient {
         return new FakeRespClient([
-            'OK',
+            'OK',                   // WATCH inbox
             [json_encode(['id' => 'M-C1', 'from' => 'x', 'body' => 'hi', 'session' => 'sess-a'])],
+            'OK', 'OK',             // WATCH session set + target hash
+            [],                     // SMEMBERS agent-sessions (no other live targets)
             'OK', 'QUEUED', 'QUEUED', [1, 1],
         ]);
     }
@@ -239,6 +244,9 @@ class MessageToolsTest extends TestCase {
                 json_encode(['id' => 'M-B1', 'from' => 'x', 'body' => 'open']),
                 json_encode(['id' => 'M-B2', 'from' => 'x', 'body' => 'for-s1', 'session' => 's1']),
             ],
+            'OK', 'OK',              // WATCH session set + target hash
+            ['s1'],                  // SMEMBERS agent-sessions (target remains live)
+            ['heartbeat', '1'],      // HGETALL session:s1
             'OK', 'QUEUED', 'QUEUED', [1, 2],
         ]);
         $result = $this->tools($resp)->message_lease();
@@ -255,6 +263,9 @@ class MessageToolsTest extends TestCase {
                 json_encode(['id' => 'M-U2', 'from' => 'x', 'body' => 'for-b', 'session' => 'sess-b']),
                 json_encode(['id' => 'M-U3', 'from' => 'x', 'body' => 'open']),
             ],
+            'OK', 'OK', 'OK',        // WATCH session set + both target hashes
+            ['sess-b'],              // SMEMBERS agent-sessions (other live target)
+            ['heartbeat', '1'],      // HGETALL session:sess-b
             'OK', 'QUEUED', 'QUEUED', [1, 3],
         ]);
         $result = $this->tools($resp)->message_lease(10, 60, untargeted: false);
@@ -262,8 +273,8 @@ class MessageToolsTest extends TestCase {
         $this->assertSame(1, $data['count']);
         $this->assertSame('for-a', $data['messages'][0]['body']);
         // rewrite keeps the other two in place, unmarked
-        $this->assertSame('RPUSH', $resp->calls[4][0]);
-        $kept = array_map(fn($j) => json_decode($j, true), array_slice($resp->calls[4], 2));
+        $this->assertSame('RPUSH', $resp->calls[9][0]);
+        $kept = array_map(fn($j) => json_decode($j, true), array_slice($resp->calls[9], 2));
         $byId = array_column($kept, null, 'id');
         $this->assertSame($data['lease'], $byId['M-U1']['lease']);
         $this->assertArrayNotHasKey('lease', $byId['M-U2']);
@@ -279,12 +290,15 @@ class MessageToolsTest extends TestCase {
                 json_encode(['id' => 'M-V2', 'from' => 'x', 'body' => 'for-b', 'session' => 'sess-b']),
                 json_encode(['id' => 'M-V3', 'from' => 'x', 'body' => 'open']),
             ],
+            'OK', 'OK', 'OK',        // WATCH session set + both target hashes
+            ['sess-b'],              // SMEMBERS agent-sessions (other live target)
+            ['heartbeat', '1'],      // HGETALL session:sess-b
             'OK', 'QUEUED', 'QUEUED', [1, 3],
         ]);
         $result = $this->tools($resp)->message_lease(10, 60);
         $data = $result->getStructuredContent();
         $this->assertSame(['for-a', 'open'], array_column($data['messages'], 'body'));
-        $kept = array_map(fn($j) => json_decode($j, true), array_slice($resp->calls[4], 2));
+        $kept = array_map(fn($j) => json_decode($j, true), array_slice($resp->calls[9], 2));
         $byId = array_column($kept, null, 'id');
         $this->assertArrayNotHasKey('lease', $byId['M-V2']);
     }
@@ -302,23 +316,23 @@ class MessageToolsTest extends TestCase {
     }
 
     public function testLeaseEmptyInboxWritesNothing(): void {
-        $resp = new FakeRespClient(['OK', []]);
+        $resp = new FakeRespClient(['OK', [], 'OK', [], 'OK']);
         $result = $this->tools($resp)->message_lease();
         $data = $result->getStructuredContent();
         $this->assertSame(0, $data['count']);
         $this->assertMatchesRegularExpression('/^L-[0-9A-F]{8}$/', $data['lease']);
         // WATCH, LRANGE, UNWATCH — no inbox write; the only further call
         // is the event-log change notification.
-        $this->assertSame('UNWATCH', $resp->calls[2][0]);
-        $this->assertSame('PUBLISH', $resp->calls[3][0]);
-        $this->assertCount(4, $resp->calls);
+        $this->assertSame('UNWATCH', $resp->calls[4][0]);
+        $this->assertSame('PUBLISH', $resp->calls[5][0]);
+        $this->assertCount(6, $resp->calls);
     }
 
     public function testLeaseRetriesOnceThenThrowsOnConcurrentWrites(): void {
         $entry = json_encode(['id' => 'M-C1', 'from' => 'x', 'body' => 'open']);
         $resp = new FakeRespClient([
-            'OK', [$entry], 'OK', 'QUEUED', 'QUEUED', null,   // EXEC lost the race
-            'OK', [$entry], 'OK', 'QUEUED', 'QUEUED', null,   // and again
+            'OK', [$entry], 'OK', [], 'OK', 'QUEUED', 'QUEUED', null,   // EXEC lost the race
+            'OK', [$entry], 'OK', [], 'OK', 'QUEUED', 'QUEUED', null,   // and again
         ]);
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessageMatches('/concurrently/');
@@ -350,11 +364,8 @@ class MessageToolsTest extends TestCase {
 
     public function testSendCarriesTargetingFieldsAndId(): void {
         $resp = new FakeRespClient([
-            ['bob'],                 // SMEMBERS agents
-            ['heartbeat', '1'],      // HGETALL agent:bob
             ['sess-1'],              // SMEMBERS agent-sessions:bob
             ['heartbeat', '1'],      // HGETALL session:bob:sess-1
-            '1',                     // HGET agent:bob heartbeat
             2,                       // RPUSH -> depth 2
         ]);
         $expires = gmdate('c', time() + 3600);
@@ -366,7 +377,7 @@ class MessageToolsTest extends TestCase {
         $data = $result->getStructuredContent();
         $this->assertTrue($data['queued']);
         $this->assertMatchesRegularExpression('/^M-[0-9A-F]{8}$/', $data['id']);
-        $envelope = json_decode($resp->calls[5][2], true);
+        $envelope = json_decode($resp->calls[2][2], true);
         $this->assertSame($data['id'], $envelope['id']);
         $this->assertSame('sess-1', $envelope['session']);
         $this->assertSame('directive', $envelope['kind']);
@@ -401,11 +412,8 @@ class MessageToolsTest extends TestCase {
 
     public function testSendWithTaskTargetsOwnerSession(): void {
         $resp = new FakeRespClient([
-            ['bob'],                 // SMEMBERS agents
-            ['heartbeat', '1'],      // HGETALL agent:bob
             ['sess-bound'],          // SMEMBERS agent-sessions:bob
             ['heartbeat', '1'],      // HGETALL session:bob:sess-bound
-            '1',                     // HGET agent:bob heartbeat
             1,                       // RPUSH -> depth 1
         ]);
         $couch = new FakeCouch([
@@ -415,7 +423,7 @@ class MessageToolsTest extends TestCase {
         ]);
         $tools = new MessageTools(new ContinuumStorage(new ValKeyStore($resp), $couch, new FakeArcade()));
         $result = $tools->message_send('bob', 'for the task', null, task: 'T-1');
-        $envelope = json_decode($resp->calls[5][2], true);
+        $envelope = json_decode($resp->calls[2][2], true);
         $this->assertSame('sess-bound', $envelope['session']);
         $this->assertSame('T-1', $envelope['task']);
         $this->assertTrue($result->getStructuredContent()['queued']);
@@ -442,11 +450,8 @@ class MessageToolsTest extends TestCase {
 
     public function testSendWithTaskHonorsExplicitSessionForNonOwner(): void {
         $resp = new FakeRespClient([
-            ['claude'],              // SMEMBERS agents
-            ['heartbeat', '1'],      // HGETALL agent:claude
             ['sess-claude-1'],       // SMEMBERS agent-sessions:claude
             ['heartbeat', '1'],      // HGETALL session:claude:sess-claude-1
-            '1',                     // HGET agent:claude heartbeat
             1,                       // RPUSH -> depth 1
         ]);
         $couch = new FakeCouch([
@@ -456,18 +461,15 @@ class MessageToolsTest extends TestCase {
         ]);
         $tools = new MessageTools(new ContinuumStorage(new ValKeyStore($resp), $couch, new FakeArcade()));
         $tools->message_send('claude', 'for the task', null, session: 'sess-claude-1', task: 'T-1');
-        $envelope = json_decode($resp->calls[5][2], true);
+        $envelope = json_decode($resp->calls[2][2], true);
         $this->assertSame('sess-claude-1', $envelope['session']);
         $this->assertSame('T-1', $envelope['task']);
     }
 
     public function testSendRejectsSessionUnreachableInRecipientInbox(): void {
         $resp = new FakeRespClient([
-            ['claude'],              // SMEMBERS agents
-            ['heartbeat', '1'],      // HGETALL agent:claude
             ['sess-claude-9'],       // SMEMBERS agent-sessions:claude
             ['heartbeat', '1'],      // HGETALL session:claude:sess-claude-9
-            '1',                     // HGET agent:claude heartbeat
         ]);
         $couch = new FakeCouch([]);
         $tools = new MessageTools(new ContinuumStorage(new ValKeyStore($resp), $couch, new FakeArcade()));
@@ -475,30 +477,67 @@ class MessageToolsTest extends TestCase {
             $tools->message_send('claude', 'hi', null, session: 'sess-claude-1');
             $this->fail('expected InvalidArgumentException for an unreachable session target');
         } catch (\InvalidArgumentException $e) {
-            $this->assertStringContainsString("not held by 'claude'", $e->getMessage());
+            $this->assertStringContainsString("session_inactive", $e->getMessage());
         }
         // the guard fires before any inbox write or audit entry
         $this->assertNotContains('RPUSH', array_column($resp->calls, 0));
         $this->assertSame([], $couch->calls);
     }
 
-    public function testSendAllowsSessionWhenRecipientHasNoSessionPresence(): void {
-        $resp = new FakeRespClient([
-            ['claude'],              // SMEMBERS agents
-            ['heartbeat', '1'],      // HGETALL agent:claude
-            [],                      // SMEMBERS agent-sessions:claude (none published)
-            '1',                     // HGET agent:claude heartbeat
-            1,                       // RPUSH -> depth 1
-        ]);
-        $couch = new FakeCouch([
-            ['code' => 200, 'body' => ['uuids' => ['ev']]],
-            ['code' => 201, 'body' => []],
-        ]);
+    public function testSendRejectsSessionWhenRecipientHasNoLivePresence(): void {
+        $resp = new FakeRespClient([[]]); // SMEMBERS agent-sessions:claude (none live)
+        $couch = new FakeCouch([]);
         $tools = new MessageTools(new ContinuumStorage(new ValKeyStore($resp), $couch, new FakeArcade()));
-        $result = $tools->message_send('claude', 'hi', null, session: 'sess-claude-1');
+        try {
+            $tools->message_send('claude', 'hi', null, session: 'sess-claude-1');
+            $this->fail('expected session_inactive');
+        } catch (\InvalidArgumentException $e) {
+            $this->assertStringContainsString('session_inactive', $e->getMessage());
+        }
+        $this->assertNotContains('RPUSH', array_column($resp->calls, 0));
+        $this->assertSame([], $couch->calls);
+    }
+
+    public function testSendToSessionLabelUsesNewestLiveRegistration(): void {
+        $old = ['session_label', 'reviewer', 'registered_at', '2026-01-01T00:00:00Z', 'heartbeat', '100'];
+        $new = ['session_label', 'reviewer', 'registered_at', '2026-02-01T00:00:00Z', 'heartbeat', '50'];
+        $resp = new FakeRespClient([
+            ['old', 'new'], $old, $new,     // label resolution: old registered first, newer heartbeat only on old
+            ['old', 'new'], $old, $new,     // exact target validation
+            1,                              // RPUSH
+        ]);
+        $result = $this->tools($resp)->message_send('zed', 'review ready', null, sessionLabel: 'reviewer');
+        $this->assertSame('new', $result->getStructuredContent()['session']);
+        $envelope = json_decode($resp->calls[6][2], true);
+        $this->assertSame('new', $envelope['session']);
+    }
+
+    public function testNumericStringSessionIdRemainsAStringAcrossLabelRouting(): void {
+        $record = ['session_label', 'reviewer', 'registered_at', '2026-01-01T00:00:00Z'];
+        $resp = new FakeRespClient([
+            [123], $record,
+            [123], $record,
+            1,
+        ]);
+        $result = $this->tools($resp)->message_send('zed', 'numeric session', null, sessionLabel: 'reviewer');
+        $this->assertSame('123', $result->getStructuredContent()['session']);
         $envelope = json_decode($resp->calls[4][2], true);
-        $this->assertSame('sess-claude-1', $envelope['session']);
-        $this->assertTrue($result->getStructuredContent()['queued']);
+        $this->assertSame('123', $envelope['session']);
+        $this->assertSame('string', gettype($envelope['session']));
+    }
+
+    public function testSendToUnknownSessionLabelFailsWithoutSideEffects(): void {
+        $resp = new FakeRespClient([[]]);
+        $couch = new FakeCouch([]);
+        $tools = new MessageTools(new ContinuumStorage(new ValKeyStore($resp), $couch, new FakeArcade()));
+        try {
+            $tools->message_send('zed', 'review ready', null, sessionLabel: 'reviewer');
+            $this->fail('expected session_inactive');
+        } catch (\InvalidArgumentException $e) {
+            $this->assertStringContainsString('session_inactive', $e->getMessage());
+        }
+        $this->assertNotContains('RPUSH', array_column($resp->calls, 0));
+        $this->assertSame([], $couch->calls);
     }
 
     public function testSendWithTaskViaBridgeOmitsSessionForNonOwner(): void {
@@ -549,7 +588,10 @@ class MessageToolsTest extends TestCase {
     }
 
     public function testSendViaBridgeBuildsJidAndSonyaFields(): void {
-        $resp = new FakeRespClient([]);
+        $resp = new FakeRespClient([
+            ['sess-7'],
+            ['heartbeat', '1'],
+        ]);
         $bridge = new FakeXmppBridge();
         $tools = new MessageTools(new ContinuumStorage(
             new ValKeyStore($resp),
@@ -679,11 +721,8 @@ class MessageToolsTest extends TestCase {
 
         \Continuum\SessionContext::setDeclared('sess-e2e');
         $resp = new FakeRespClient([
-            ['sonya'],               // SMEMBERS agents
-            ['heartbeat', '1'],      // HGETALL agent:sonya
             ['sess-e2e'],            // SMEMBERS agent-sessions:sonya
             ['heartbeat', '1'],      // HGETALL session:sonya:sess-e2e
-            '1',                     // HGET agent:sonya heartbeat
             1,                       // RPUSH -> depth
         ]);
         $this->tools($resp)->message_send('sonya', 'ship it', null, session: 'sess-e2e', cert: $certJson,
@@ -737,16 +776,13 @@ class MessageToolsTest extends TestCase {
 
     public function testSendAttestationClaimsDeclaredSession(): void {
         $resp = new FakeRespClient([
-            ['bob'],                 // SMEMBERS agents
-            ['heartbeat', '1'],      // HGETALL agent:bob
             ['sess-1'],              // SMEMBERS agent-sessions:bob
             ['heartbeat', '1'],      // HGETALL session:bob:sess-1
-            '1',                     // HGET agent:bob heartbeat
             1,                       // RPUSH
         ]);
         $tools = new MessageTools(new ContinuumStorage(new ValKeyStore($resp), $this->couch(), new FakeArcade()), null, null, $this->signKeyFile);
         $tools->message_send('bob', 'hello', null, session: 'sess-1');
-        $envelope = json_decode($resp->calls[5][2], true);
+        $envelope = json_decode($resp->calls[2][2], true);
         $result = Verify::envelope($envelope + ['to' => 'bob'], $this->continuumDoc());
         $this->assertTrue($result['valid']);
         $this->assertSame('sess-1', $result['session']);

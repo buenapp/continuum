@@ -17,7 +17,7 @@ class StatusTools {
 
     #[McpTool(
         name: 'board_status',
-        description: 'Whole-board snapshot: agents with last-seen, open tasks with owners, held advisory locks, board scopes, queue depths, recent events.',
+        description: 'Whole-board snapshot: agents with last-seen and inbox counts by live/inactive session, open tasks with owners, held advisory locks, board scopes, queue depths, recent events.',
         readOnlyHint: true,
         outputSchema: self::STATUS_SCHEMA
     )]
@@ -27,13 +27,15 @@ class StatusTools {
         $agents = [];
         foreach ($this->storage->agentDirectory() as $agentId => $record) {
             $ts = isset($record['heartbeat']) ? (int)$record['heartbeat'] : null;
+            $inbox = $this->storage->inboxSummary($agentId);
             $sessions = [];
             foreach ((array)($record['sessions'] ?? []) as $sid => $srec) {
                 $sTs = isset($srec['heartbeat']) ? (int)$srec['heartbeat'] : null;
                 $sessions[] = [
-                    'session' => $sid,
+                    'session' => (string)$sid,
                     'working_on' => $srec['working_on'] ?? null,
                     'last_seen_s_ago' => $sTs === null ? null : $now - $sTs,
+                    'inbox_depth' => $inbox['sessions'][$sid] ?? 0,
                 ];
             }
             usort($sessions, fn($a, $b) => ($a['last_seen_s_ago'] ?? PHP_INT_MAX) <=> ($b['last_seen_s_ago'] ?? PHP_INT_MAX));
@@ -43,6 +45,7 @@ class StatusTools {
                 'capabilities' => isset($record['capabilities']) ? json_decode($record['capabilities'], true) : null,
                 'working_on' => $record['working_on'] ?? null,
                 'sessions' => $sessions,
+                'inbox' => $inbox,
                 'last_seen_s_ago' => $ts === null ? null : $now - $ts,
                 'registered_at' => $record['registered_at'] ?? null,
             ];
@@ -105,10 +108,13 @@ class StatusTools {
             $line .= $a['last_seen_s_ago'] === null ? ', no heartbeat' : ", last seen {$a['last_seen_s_ago']}s ago";
             if ($a['working_on']) { $line .= ", working on: {$a['working_on']}"; }
             if ($a['sessions']) { $line .= ' — ' . count($a['sessions']) . ' session(s)'; }
+            $inactive = array_sum($a['inbox']['inactive_sessions']);
+            if ($inactive > 0) { $line .= ", inactive inbox {$inactive}"; }
             $lines[] = $line;
             foreach ($a['sessions'] as $s) {
                 $sub = '  - ' . substr($s['session'], 0, 8);
                 $sub .= $s['last_seen_s_ago'] === null ? '' : " ({$s['last_seen_s_ago']}s ago)";
+                if ($s['inbox_depth'] > 0) { $sub .= ", inbox {$s['inbox_depth']}"; }
                 if ($s['working_on']) { $sub .= " — {$s['working_on']}"; }
                 $lines[] = $sub;
             }
@@ -158,13 +164,15 @@ class StatusTools {
                             'session' => ['type' => 'string'],
                             'working_on' => ['type' => ['string', 'null']],
                             'last_seen_s_ago' => ['type' => ['integer', 'null']],
+                            'inbox_depth' => ['type' => 'integer'],
                         ],
-                        'required' => ['session', 'working_on', 'last_seen_s_ago'],
+                        'required' => ['session', 'working_on', 'last_seen_s_ago', 'inbox_depth'],
                     ]],
+                    'inbox' => ['type' => 'object'],
                     'last_seen_s_ago' => ['type' => ['integer', 'null']],
                     'registered_at' => ['type' => ['string', 'null']],
                 ],
-                'required' => ['agent', 'label', 'capabilities', 'working_on', 'sessions', 'last_seen_s_ago', 'registered_at'],
+                'required' => ['agent', 'label', 'capabilities', 'working_on', 'sessions', 'inbox', 'last_seen_s_ago', 'registered_at'],
             ]],
             'open_tasks' => ['type' => 'array', 'items' => [
                 'type' => 'object',

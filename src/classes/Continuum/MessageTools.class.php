@@ -61,7 +61,7 @@ class MessageTools {
 
     #[McpTool(
         name: 'message_send',
-        description: 'Send a message to another agent\'s inbox. Optional targeting: session (delivered only to that session), task (resolves to the session bound to the task), kind (notice|context|directive|control), priority (normal|urgent), expires (ISO 8601), replyTo (message id), epoch (master epoch; control kind only). `task` targets the session working the task only when `to` is the task\'s owner; otherwise it rides as a reference. `sig` is opaque base64 identity material and `cert` the matching delegation certificate as a JSON object string (docs/IDENTITY.md); both are stored and forwarded unchanged.',
+        description: 'Send a message to another agent\'s inbox. Optional targeting: session (must be live for the recipient), sessionLabel (newest live registration with that label), task (resolves to the session bound to the task), kind (notice|context|directive|control), priority (normal|urgent), expires (ISO 8601), replyTo (message id), epoch (master epoch; control kind only). `task` targets the session working the task only when `to` is the task\'s owner; otherwise it rides as a reference. `sig` is opaque base64 identity material and `cert` the matching delegation certificate as a JSON object string (docs/IDENTITY.md); both are stored and forwarded unchanged.',
         outputSchema: self::SEND_SCHEMA
     )]
     public function message_send(
@@ -77,8 +77,15 @@ class MessageTools {
         ?string $epoch = null,
         ?string $sig = null,
         ?string $cert = null,
+        ?string $sessionLabel = null,
     ): ToolResult {
         if ($to === '') { throw new \RuntimeException('recipient must not be empty'); }
+        if ($sessionLabel !== null && $sessionLabel === '') {
+            throw new \InvalidArgumentException('sessionLabel must not be empty');
+        }
+        if ($sessionLabel !== null && $session !== null) {
+            throw new \InvalidArgumentException('session and sessionLabel are mutually exclusive');
+        }
         if ($kind !== null && !in_array($kind, self::KINDS, true)) {
             throw new \InvalidArgumentException('invalid kind; expected one of: ' . implode(', ', self::KINDS));
         }
@@ -122,12 +129,27 @@ class MessageTools {
                 $session = $bound;
             }
         }
+        if ($sessionLabel !== null) {
+            if ($session !== null) {
+                throw new \InvalidArgumentException('task-derived session conflicts with sessionLabel');
+            }
+            $liveSessions = $this->storage->sessionRecords($to);
+            $newest = null;
+            foreach ($liveSessions as $sid => $record) {
+                if (($record['session_label'] ?? null) !== $sessionLabel) { continue; }
+                $sid = (string)$sid; // PHP array keys coerce numeric strings to integers.
+                $registered = (string)($record['registered_at'] ?? '');
+                if ($newest === null || [$registered, $sid] > $newest) { $newest = [$registered, $sid]; }
+            }
+            if ($newest === null) {
+                throw new \InvalidArgumentException("session_inactive: no live session for '{$to}' with label '{$sessionLabel}'");
+            }
+            $session = $newest[1];
+        }
         if ($session !== null) {
-            // Recipients with no published session presence stay exempt
-            // (first-use and legacy flows may register the session later).
-            $held = $this->storage->agentDirectory()[$to]['sessions'] ?? [];
-            if ($held !== [] && !isset($held[$session])) {
-                throw new \InvalidArgumentException("session '{$session}' is not held by '{$to}'; it would be unreachable in their inbox");
+            $held = $this->storage->sessionRecords($to);
+            if (!isset($held[$session])) {
+                throw new \InvalidArgumentException("session_inactive: session '{$session}' is not live for '{$to}'; refresh the target or send untargeted");
             }
         }
         $id = self::newMessageId();
@@ -148,7 +170,7 @@ class MessageTools {
             'id' => $id, 'to' => $to, 'topic' => $topic, 'session' => $session, 'task' => $task,
             'kind' => $kind, 'priority' => $priority, 'expires' => $expires, 'length' => strlen($body),
         ]);
-        $data = ['id' => $id, 'to' => $to, 'queued' => true, 'depth' => $depth];
+        $data = ['id' => $id, 'to' => $to, 'queued' => true, 'depth' => $depth, 'session' => $session];
         $target = $session !== null ? ", session {$session}" : '';
         return ToolResult::structured("Message {$id} queued to '{$to}'{$target} (inbox depth {$depth}).", $data);
     }
@@ -176,7 +198,7 @@ class MessageTools {
 
     #[McpTool(
         name: 'message_lease',
-        description: 'Lease up to limit (default 20) inbox messages without deleting them: the ones addressed to your session plus untargeted ones. Returns a lease id and expiry; when the lease expires the messages become eligible again, so acknowledge processed messages with message_ack. untargeted=false leases only messages addressed to your declared session.',
+        description: 'Lease up to limit (default 20) inbox messages without deleting them: the ones addressed to your session, inactive-session targets recoverable by this identity, plus untargeted ones. Returns a lease id and expiry; acknowledge processed messages with message_ack. untargeted=false excludes ordinary untargeted mail but still recovers inactive targets.',
         idempotentHint: false,
         outputSchema: self::LEASE_SCHEMA
     )]
@@ -323,7 +345,7 @@ class MessageTools {
             'kind' => $envelope['kind'] ?? null, 'priority' => $envelope['priority'] ?? null,
             'expires' => $envelope['expires'] ?? null, 'length' => strlen($envelope['body']),
         ]);
-        $data = ['id' => $stanzaId, 'to' => $to, 'queued' => true, 'depth' => 0, 'via' => 'xmpp-bridge'];
+        $data = ['id' => $stanzaId, 'to' => $to, 'queued' => true, 'depth' => 0, 'via' => 'xmpp-bridge', 'session' => $envelope['session'] ?? null];
         return ToolResult::structured("Message {$stanzaId} sent over XMPP to {$jid}.", $data);
     }
 
@@ -377,6 +399,7 @@ class MessageTools {
             'queued' => ['type' => 'boolean'],
             'depth' => ['type' => 'integer'],
             'via' => ['type' => 'string'],
+            'session' => ['type' => ['string', 'null']],
         ],
         'required' => ['id', 'to', 'queued', 'depth'],
     ];

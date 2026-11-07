@@ -18,20 +18,22 @@ class AgentTools {
 
     #[McpTool(
         name: 'agent_register',
-        description: 'Register or refresh your presence (identity comes from your API key) with optional capabilities and a human label. Each session registers separately, so concurrent sessions on one key do not clobber each other.',
+        description: 'Register or refresh your presence (identity comes from your API key) with optional capabilities, a human label, and a sessionLabel for message_send routing. Each session registers separately, so concurrent sessions on one key do not clobber each other.',
         outputSchema: self::REGISTER_SCHEMA
     )]
-    public function agent_register(?array $capabilities = null, ?string $label = null): ToolResult {
+    public function agent_register(?array $capabilities = null, ?string $label = null, ?string $sessionLabel = null): ToolResult {
         // Presence records live in ValKey; read direct to preserve created-on fields.
         $existing = $this->storage->agentDirectory()[CONTINUUM_AGENT] ?? null;
         $meta = [];
         if ($capabilities !== null) { $meta['capabilities'] = $capabilities; }
         if ($label !== null) { $meta['label'] = $label; }
+        $sessionMeta = ['registered_at' => gmdate('c')];
+        if ($sessionLabel !== null) { $sessionMeta['session_label'] = $sessionLabel; }
         if (empty($existing['registered_at'])) { $meta['registered_at'] = gmdate('c'); }
         $this->storage->heartbeat(CONTINUUM_AGENT, $meta);
-        $sid = SessionContext::id();
+        $sid = SessionContext::session();
         if ($sid !== null) {
-            $this->storage->sessionHeartbeat(CONTINUUM_AGENT, $sid, ['registered_at' => gmdate('c')]);
+            $this->storage->sessionHeartbeat(CONTINUUM_AGENT, $sid, $sessionMeta);
         }
         if (empty($existing['registered_at'])) {
             $this->storage->appendLog(CONTINUUM_AGENT, 'agent_register', ['capabilities' => $capabilities]);
@@ -52,7 +54,7 @@ class AgentTools {
     )]
     public function agent_heartbeat(?string $workingOn = null): ToolResult {
         $meta = $workingOn !== null ? ['working_on' => $workingOn] : [];
-        $sid = SessionContext::id();
+        $sid = SessionContext::session();
         if ($sid !== null) {
             // identity record carries freshness only; working-on is session state
             $this->storage->heartbeat(CONTINUUM_AGENT);

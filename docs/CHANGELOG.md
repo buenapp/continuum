@@ -4,6 +4,37 @@ All notable behavior changes ship in this file alongside the code that
 introduces them (see AGENTS.md). Version parity is enforced between
 `APPLICATION_VERSION`, the FreeBSD port's `DISTVERSION`, and the git tag.
 
+## 0.5.3 (2026-11-07)
+
+### Added
+
+- Proved versus declared session claims
+  ([issue #6](https://pacyworld.dev/buenapp/continuum/issues/6), last
+  work item): `params._meta.session_cert` can prove the declared session;
+  anything else stays declared with the reason recorded. `task_claim`
+  records and clears the proof fields with its binding, and
+  `message_lease` reports the caller's proof for a scoped read. Registry
+  failures also downgrade to declared before any lease mutation.
+- Stable session-label routing and inactive-inbox visibility
+  ([issue #19](https://pacyworld.dev/buenapp/continuum/issues/19)):
+  `agent_register` accepts `sessionLabel`; `message_send` resolves it to
+  the newest live registration and returns the resolved session.
+  `board_status` includes per-session inbox depth and inactive-target
+  counts without exposing message bodies.
+
+### Fixed
+
+- Session-targeted sends now require a live target session, closing the
+  zero-presence exemption that silently stranded messages. Another session
+  of the same identity can adopt an inactive target's messages after any
+  active message lease expires, without changing signed envelope fields.
+  Presence heartbeats now use the same declared session id as messaging.
+- `message_send` rejected every spec-conformant `cert`. It required
+  base64, but `docs/IDENTITY.md` 7.2 carries the delegation certificate
+  as a JSON object string, which is what `Identity\Cert` parses and
+  `Identity\Verify` verifies. `cert` is now shape-checked as a JSON object
+  and stays otherwise opaque.
+
 ## 0.5.2 (2026-11-05)
 
 ### Fixed
@@ -28,44 +59,6 @@ introduces them (see AGENTS.md). Version parity is enforced between
 - The FreeBSD package now installs the identity registry and identity
   runtime classes, plus the complete vendored MCP and HTTP runtime. The
   0.5.0 port omitted files required by the packaged server.
-
-### Added
-
-- Proved versus declared session claims
-  ([issue #6](https://pacyworld.dev/buenapp/continuum/issues/6), last
-  work item): a client that presents `params._meta.session_cert` (the
-  delegation certificate for its declared session) has that session
-  claim **proved**; anything else stays **declared** with the reason
-  recorded. `task_claim` writes `session_proof` plus
-  `session_workstream` (proved) or `session_reason` (declared) on the
-  task doc, and all of them are cleared with the binding;
-  `message_lease` reports `session_proof` for a scoped read and `null`
-  for an untargeted one. A certificate delegated by a different
-  workstream than the caller's, or one that is expired, tampered,
-  unregistered, revoked or unavailable because the registry lookup fails,
-  downgrades the claim instead of failing the request. Claim classification
-  completes before the inbox lease mutation. Continuum enforces no minimum
-  level; consumers decide. See
-  `docs/IDENTITY.md` 12.
-
-### Fixed
-
-- The FreeBSD port never installed `classes/Continuum/Identity/`, so a
-  packaged install had no `Identity\Cert`, `Verify`, `Envelope`,
-  `Attestor` or `SessionClaim` and every identity-dependent path
-  (verification, `cert`/`sig` carriers, the session claim levels) would
-  have failed at runtime. `identity-admin`, `IdentityResources` and
-  `Telemetry` were also absent from `pkg-plist`. All are installed and
-  listed now, and the plist is verified to match the staged tree
-  exactly.
-- `message_send` rejected every spec-conformant `cert`. It required
-  base64, but `docs/IDENTITY.md` 7.2 carries the delegation certificate
-  as a JSON object string, which is what `Identity\Cert` parses and
-  `Identity\Verify` verifies, so no end-to-end signed message could be
-  sent and the XMPP bridge would have carried the wrong bytes. `cert`
-  is now shape-checked as a JSON object and stays otherwise opaque.
-  The existing tests used `base64_encode('{"stub":"cert"}')` and so
-  never exercised the real wire form.
 
 ## 0.5.0 (2026-10-22)
 

@@ -30,6 +30,8 @@ class StatusToolsTest extends TestCase {
             ['heartbeat', (string)(time() - 42), 'working_on', 'parser', 'capabilities', '["php"]'], // HGETALL alice
             [],                                                               // SMEMBERS agent-sessions:alice
             (string)(time() - 42),                                            // HGET heartbeat alice
+            [],                                                               // SMEMBERS agent-sessions:alice (inbox summary)
+            [],                                                               // LRANGE inbox:alice
             1,                                                                // LLEN queue:proj
             ['0', ['continuum:lock:build']],                                  // SCAN
             'alice',                                                          // GET lock:build
@@ -83,6 +85,9 @@ class StatusToolsTest extends TestCase {
             ['aaaaaaaa111122223333'],                                         // SMEMBERS agent-sessions:alice
             ['agent', 'alice', 'session', 'aaaaaaaa111122223333', 'heartbeat', (string)($now - 10), 'working_on', 'dual format'], // HGETALL session
             (string)($now - 300),                                             // HGET heartbeat alice
+            ['aaaaaaaa111122223333'],                                         // SMEMBERS agent-sessions:alice (inbox summary)
+            ['agent', 'alice', 'session', 'aaaaaaaa111122223333', 'heartbeat', (string)($now - 10)],
+            [json_encode(['session' => 'old-dead', 'body' => 'orphan']), json_encode(['session' => 'aaaaaaaa111122223333', 'body' => 'live'])],
             ['0', []],                                                        // SCAN (no locks)
         ]);
         $couch = new FakeCouch([
@@ -95,6 +100,8 @@ class StatusToolsTest extends TestCase {
         $this->assertCount(1, $agent['sessions']);
         $this->assertSame('aaaaaaaa111122223333', $agent['sessions'][0]['session']);
         $this->assertSame('dual format', $agent['sessions'][0]['working_on']);
+        $this->assertSame(1, $agent['sessions'][0]['inbox_depth']);
+        $this->assertSame(['old-dead' => 1], $agent['inbox']['inactive_sessions']);
         // freshness follows the newest session beat, not the stale identity one
         $this->assertLessThan(20, $agent['last_seen_s_ago']);
         // text rendering lists the session under the agent

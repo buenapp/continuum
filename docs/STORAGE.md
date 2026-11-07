@@ -17,7 +17,11 @@
 - `task:{id}` HASH — claim hand-off payload snapshot
 - `lock:{name}` STR — advisory lock, value=owner, TTL enforced
 - `agent:{id}` HASH + `agents` SET — presence/heartbeat
-- `inbox:{agentId}` LIST — JSON messages
+- `session:{agent}:{sid}` HASH — declared session presence, optional
+  `session_label`, four-hour heartbeat TTL
+- `inbox:{agentId}` LIST — JSON messages; inactive-session targets may be
+  adopted by another session of the same identity after any active message
+  lease expires, with signed envelope fields left unchanged
 - `signal:{channel}` — PUBSUB channel (no persistence)
 
 Locks are acquire-by-`SET NX EX` and release by compare-and-delete Lua —

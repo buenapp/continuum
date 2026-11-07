@@ -13,6 +13,8 @@ class AgentToolsTest extends TestCase {
 
     protected function tearDown(): void {
         SessionContext::set(null);
+        SessionContext::setDeclared(null);
+        SessionContext::setDeclaredCert(null);
     }
 
     private function tools(FakeRespClient $resp, ?FakeCouch $couch = null): AgentTools {
@@ -98,6 +100,19 @@ class AgentToolsTest extends TestCase {
         $commands = array_map(fn($c) => $c[0], $resp->calls);
         $this->assertContains('EXPIRE', $commands);
         $this->assertContains('SADD', $commands);
+    }
+
+    public function testDeclaredSessionDrivesHeartbeatAndLabelMetadata(): void {
+        SessionContext::set('transport-session');
+        SessionContext::setDeclared('declared-session');
+        $resp = new FakeRespClient([[]]); // SMEMBERS agents
+        $result = $this->tools($resp)->agent_register(null, null, 'reviewer');
+        $this->assertSame('declared-session', $result->getStructuredContent()['session']);
+        $sessionWrites = array_values(array_filter($resp->calls,
+            fn($c) => $c[0] === 'HSET' && ($c[1] ?? '') === 'continuum:session:test-agent:declared-session'));
+        $this->assertCount(1, $sessionWrites);
+        $this->assertContains('session_label', $sessionWrites[0]);
+        $this->assertContains('reviewer', $sessionWrites[0]);
     }
 
     public function testSessionRegisterStampsAStartedSession(): void {
