@@ -88,9 +88,12 @@ sessions are signed as the empty string. Storage-only fields
 
 ## 5. Carrier fields
 
-`sig`, `cert` and `attest` are optional opaque base64 strings at the
-MCP boundary: `message_send` shape-checks `sig`/`cert` (non-empty,
-base64-decodable) and stores them unchanged; `attest` is computed by
+`sig`, `cert` and `attest` are optional opaque strings at the MCP
+boundary, carried unmodified end to end. Their encodings differ:
+`sig` and `attest` are base64 Ed25519 signatures, `cert` is the
+certificate as a JSON object string (7.2). `message_send`
+shape-checks `sig` as non-empty base64 and `cert` as a non-empty
+JSON object, then stores both unchanged; `attest` is computed by
 Continuum (6.3). Reads (`message_lease`, `message_inbox_pull`) return
 all three unchanged, and the XMPP bridge carries them in the sonya
 payload (`urn:sonya:message:0` fields `sig`, `cert`, `attest`).
@@ -354,13 +357,58 @@ whose final `id`/`ts` were known to the signer; extending `message_send`
 to accept them (or a sign-and-send tool) is tracked as follow-up.
 `attest` has no such gap: Continuum signs after stamping `id`/`ts`.
 
-## 12. Proved versus declared session (v1)
+## 12. Proved versus declared session
 
-v1 carries no proof machinery: a `session_proof` field stays absent and
-absent means declared. `cert.session` proves a session only for the
-signing key itself (6.2); `_meta.session` claims on leases and task
-claims remain declared. Full proved-session marking follows after
-attestation lands.
+A session id reaches Continuum two ways: the transport's own
+`MCP-Session-Id`, and the agent's declared `params._meta.session`,
+which wins where set. Neither authenticates anything on its own: any
+key holder can name any session id, so a claim is a claim.
+
+A declared session becomes **proved** when the caller also presents
+`params._meta.session_cert`: the delegation certificate (6.1) for that
+very session, as a JSON object string. The certificate is checked
+against the request's *effective* session (the declared one where set,
+otherwise the transport id), so presenting a certificate without
+declaring a session still proves the transport session. The claim is
+proved when all of these hold:
+
+1. the certificate parses and passes the 6.1 verification order
+   (`ws_sig` against the registry key, status `active`, `not_after`
+   not past);
+2. `cert.session` is the claimed session;
+3. `cert.workstream` is the workstream that authenticated this request.
+   A valid certificate delegated by a different workstream proves that
+   other workstream's session, not this caller's.
+
+Anything else is **declared**, and the reason is recorded: no
+certificate, unusable certificate, wrong session, wrong workstream,
+unregistered or revoked workstream, expired certificate. A bad
+certificate never fails the request; it only downgrades the claim, so
+a session that has not yet been delegated keeps working exactly as
+before.
+
+Where the level appears:
+
+- `task_claim` records it on the task doc: `session_proof`
+  (`proved`|`declared`), plus `session_workstream` when proved and
+  `session_reason` when declared. The proof fields are cleared with the
+  session binding (status change away from an owner, handoff, next
+  claim), so a stale level can never outlive the claim it describes.
+- `message_lease` reports it for a scoped read: `session_proof`, the
+  reason in its human-readable text. An untargeted lease with no
+  session in play reports `session_proof: null` because nothing is
+  being claimed; `untargeted` only widens which messages are eligible,
+  so a declared session still reports its level on an untargeted lease.
+
+`continuum://tasks` summaries carry `session` and `session_proof`; the
+task card carries those plus `session_workstream` or `session_reason`.
+Continuum does not enforce a minimum level; consumers decide (Sonya
+Core requires end to end for `control`, accepts attested or declared
+for weaker kinds, per issue #6). Note that the two mechanisms answer
+different questions: `sig`/`cert` on an envelope prove *what was sent*,
+while `session_cert` proves *who is reading or claiming now*. A
+certificate proving a claim does not make the envelopes that session
+later sends signed; those still need their own `sig`.
 
 ## 13. Compatibility
 
@@ -370,3 +418,6 @@ attestation lands.
   string properties; nothing else changes shape.
 - With `[identity] sign_key_file` unset, `message_send` output and the
   stored envelope are byte-identical to before this feature.
+- Session claims without `params._meta.session_cert` stay `declared`,
+  which is the pre-existing behavior with an explicit label. Nothing is
+  rejected for lacking a certificate.
